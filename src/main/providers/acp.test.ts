@@ -462,13 +462,13 @@ test('aborted and timed-out connection probes retire their child without leaking
   let restoreOsProbe: (() => void) | undefined;
   const initialized = new Promise<void>((resolveReady, reject) => {
     watcher = watch(directory, () => {
-      void records(journal)
+      void records(journal, { live: true })
         .then((entries) => {
           if (entries.some((entry) => entry.method === 'initialize')) resolveReady();
         })
         .catch((error: unknown) => {
-          if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT'))
-            reject(new Error('Fixture journal could not be read'));
+          const fault = error instanceof Error ? error : new Error('Fixture journal failed');
+          if (!('code' in fault && fault.code === 'ENOENT')) reject(fault);
         });
     });
   });
@@ -491,10 +491,10 @@ test('aborted and timed-out connection probes retire their child without leaking
     });
     await assertRetired(journal);
     const recycledPid = retiredProbe.pid;
-    // Simulate OS PID reuse after both real probe exits were confirmed.
+    // Recycle a PID only after both real exits.
     restoreOsProbe = simulatePidReuse(recycledPid);
     await assertRetired(journal);
-    // A new instance with the recycled PID must remain detectable as live.
+    // A fresh live instance must still fail.
     await writeFile(
       journal,
       `${JSON.stringify({ pid: recycledPid, instanceId: randomUUID() })}\n`,
