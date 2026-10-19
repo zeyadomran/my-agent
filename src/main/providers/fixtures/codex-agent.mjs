@@ -7,15 +7,17 @@ const behavior = JSON.parse(readFileSync('behavior.json', 'utf8'));
 const journal = process.env.CODEX_FIXTURE_JOURNAL;
 if (!journal) throw new Error('Missing owned fixture journal');
 const record = (entry) => appendFileSync(journal, `${JSON.stringify(entry)}\n`);
-record({ pid: process.pid, args: process.argv.slice(2) });
+record({ pid: process.pid, instance: randomUUID(), args: process.argv.slice(2) });
 const send = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 const result = (id, value) => send({ id, result: value });
-const error = (id, code) => send({ id, error: { code, message: 'Controlled fixture failure' } });
+const error = (id, code) =>
+  send({ id, error: { code, message: behavior.errorText ?? 'Controlled fixture failure' } });
 const notify = (method, params) => send({ method, params });
 let initialized = false;
 let ready = false;
 let active;
 let outstandingApproval;
+let pendingProbe;
 const sessionPath = 'native-session.json';
 const sessions = existsSync(sessionPath) ? JSON.parse(readFileSync(sessionPath, 'utf8')) : {};
 const save = () => writeFileSync(sessionPath, JSON.stringify(sessions));
@@ -33,11 +35,14 @@ function setup(params, threadId) {
     throw new Error('Missing chat policy');
   return {
     thread: { id: threadId, turns: [] },
-    model: params.model ?? 'fixture-model',
+    model: behavior.wrongModel ? 'other-model' : (params.model ?? 'fixture-model'),
     modelProvider: 'fixture',
     approvalPolicy: 'never',
     approvalsReviewer: 'user',
-    sandbox: { type: 'readOnly', networkAccess: false },
+    sandbox: {
+      type: behavior.unsafeSandbox ? 'dangerFullAccess' : 'readOnly',
+      networkAccess: false,
+    },
   };
 }
 
@@ -78,6 +83,10 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       if (message.id !== outstandingApproval || message.result?.decision !== 'decline')
         throw new Error('Unexpected approval');
       record({ refusedApproval: true });
+      if (pendingProbe) {
+        result(pendingProbe.id, pendingProbe.setup);
+        pendingProbe = undefined;
+      }
       return;
     }
     const { id, method, params } = message;
@@ -120,7 +129,15 @@ createInterface({ input: process.stdin }).on('line', (line) => {
         const threadId = randomUUID();
         sessions[threadId] = { turns: [] };
         save();
-        result(id, setup(params, threadId));
+        if (behavior.probeApproval) {
+          pendingProbe = { id, setup: setup(params, threadId) };
+          outstandingApproval = 'approval-probe';
+          send({
+            id: outstandingApproval,
+            method: 'item/commandExecution/requestApproval',
+            params: { threadId },
+          });
+        } else result(id, setup(params, threadId));
         break;
       }
       case 'thread/read':
@@ -181,6 +198,13 @@ createInterface({ input: process.stdin }).on('line', (line) => {
             text: '',
           },
         });
+        if (behavior.stall)
+          notify('item/agentMessage/delta', {
+            threadId: params.threadId,
+            turnId,
+            itemId,
+            delta: 'Waiting',
+          });
         if (!behavior.stall && !behavior.tool) finish(behavior.failedTurn ? 'failed' : 'completed');
         break;
       }

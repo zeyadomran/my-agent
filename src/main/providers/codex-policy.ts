@@ -124,7 +124,26 @@ export function codexProfile(profile: ResolvedProfile): ResolvedProfile {
   if (args[0] === 'app-server') args.shift();
   const bound = ['app-server', '--stdio'];
   while (args.length > 0) {
-    const arg = args.shift();
+    let arg = args.shift();
+    if (
+      arg?.startsWith('--config=') === true ||
+      arg?.startsWith('--enable=') === true ||
+      arg?.startsWith('--disable=') === true ||
+      arg?.startsWith('--listen=') === true
+    ) {
+      const separator = arg.indexOf('=');
+      args.unshift(arg.slice(separator + 1));
+      arg = arg.slice(0, separator);
+    }
+    if (arg === '--stdio') continue;
+    if (arg === '--listen') {
+      if (args.shift() !== 'stdio://') throw new CodexConfigurationError();
+      continue;
+    }
+    if (arg === '--strict-config') {
+      if (!bound.includes(arg)) bound.push(arg);
+      continue;
+    }
     if (arg === '-c' || arg === '--config') {
       const value = args.shift();
       const key = value?.split('=', 1)[0]?.trim();

@@ -12,8 +12,9 @@ test('Codex binds literal configuration with application policy last', () => {
     cwd: '.',
     env: [],
     args: [
-      '-c',
-      'model="literal model & value"',
+      'app-server',
+      '--stdio',
+      '--config=model="literal model & value"',
       '--enable',
       'shell_tool',
       '-c',
@@ -33,7 +34,7 @@ test('Codex binds literal configuration with application policy last', () => {
     'model_reasoning_effort="ultra"',
   ]);
   expect(codexThreadConfig({})).not.toHaveProperty('model_reasoning_effort');
-  expect(profile.args).not.toContain('app-server');
+  expect(profile.args).not.toContain('features.shell_tool=false');
 });
 
 test('Codex disables configured integrations without retaining protected configuration', () => {
