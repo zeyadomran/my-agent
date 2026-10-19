@@ -22,7 +22,7 @@ Resume preserves Claude's persisted native context and supplies complete app mes
 
 The shared handoff preserves full messages or fails at its documented 256 KiB encoded-line budget. JSON framing adds overhead; there is no silent history trimming. Claude may reject input at a smaller context limit or apply its own native context handling/compaction. Native persistence does not promise unlimited model context.
 
-Only current-session text deltas and any remaining final assistant text are emitted. Final snapshots and result text are checked without repeating already streamed output. Session/message identity, tool absence, result success, and exit status must agree. Missing results, contradictory output, malformed frames, and nonzero exits yield one sanitized failure. Stop, iterator return, disposal, deadlines, and failures await shared process retirement. Interrupted checkpoints remain non-reusable so the next run cannot silently inherit an uncertain partial turn.
+Only current-session text deltas and any remaining final assistant text are emitted. Final snapshots and result text are checked without repeating already streamed output. Session/message identity, tool absence, result success, and exit status must agree. Missing results, contradictory output, malformed frames, and nonzero exits yield one sanitized failure. Stop, iterator return, disposal, deadlines, and failures await shared process retirement. If retirement cannot be confirmed, a consumed run reports sanitized `failed` even when its signal was aborted; `stopped` requires successful retirement. Interrupted checkpoints remain non-reusable so the next run cannot silently inherit an uncertain partial turn.
 
 ## Validation boundary
 

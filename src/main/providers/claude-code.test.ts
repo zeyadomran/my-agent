@@ -1,7 +1,9 @@
+import { ChildProcess } from 'node:child_process';
+import { once } from 'node:events';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 
 import type {
   DurableMessage,
@@ -382,6 +384,50 @@ test('Claude refuses unavailable executables and oversized context without dropp
     await adapter.dispose();
   }
 });
+
+test('Claude reports retirement failure during Stop instead of a successful stopped outcome', async () => {
+  const { journal, request } = await scenario({ hang: true });
+  const adapter = createClaudeCodeAdapter();
+  const controller = new AbortController();
+  const iterator = adapter.run(request, controller.signal)[Symbol.asyncIterator]();
+  const refusedChildren = new Set<ChildProcess>();
+  const signalProcess = process.kill.bind(process);
+  const groupSignal = vi.spyOn(process, 'kill');
+  const childSignal = vi.spyOn(ChildProcess.prototype, 'kill');
+  try {
+    expect((await iterator.next()).value).toMatchObject({ type: 'session' });
+    expect((await iterator.next()).value).toEqual({ type: 'delta', text: 'Hello ' });
+    // Fail only the OS retirement boundary, after the real provider is running.
+    groupSignal.mockImplementation((pid, signal) => {
+      if (pid < 0 && signal === 'SIGKILL') throw new Error('Owned OS signal refusal');
+      return signalProcess(pid, signal);
+    });
+    childSignal.mockImplementation(function (this: ChildProcess) {
+      refusedChildren.add(this);
+      throw new Error('Owned OS signal refusal');
+    });
+    controller.abort();
+    const terminal = await iterator.next();
+    expect(refusedChildren.size).toBeGreaterThan(0);
+    expect(terminal.value).toEqual({ type: 'failed', code: 'provider-failed' });
+    expect(await iterator.next()).toEqual({ done: true, value: undefined });
+  } finally {
+    childSignal.mockRestore();
+    groupSignal.mockRestore();
+    controller.abort();
+    await iterator.return?.();
+    await adapter.dispose();
+    // Restore the OS boundary and reap the precise owned handle even when red.
+    for (const child of refusedChildren) {
+      if (child.exitCode === null && child.signalCode === null) {
+        const closed = once(child, 'close');
+        child.kill('SIGKILL');
+        await closed;
+      }
+    }
+    await assertRetired(journal);
+  }
+}, 15_000);
 
 test.each(['abort', 'return', 'dispose'])(
   'Claude cancellation through %s invalidates resume and drains before returning',

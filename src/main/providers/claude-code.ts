@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { ProviderAdapter, ProviderEvent, ProviderRunRequest } from '../../shared/contracts';
 import { ClaudePolicyError } from './claude-policy';
-import { claudeExchange } from './claude-process';
+import { claudeExchange, ClaudeRetirementFault } from './claude-process';
 import { claudeCheckpoint, newClaudeSession, resumableClaudeSession } from './claude-session';
 import { EventChannel } from './event-channel';
 import { ProviderFault } from './fault';
@@ -82,6 +82,8 @@ export function createClaudeCodeAdapter(options: ClaudeCodeAdapterOptions = {}):
       }
       throw new ProviderFault();
     } catch (error) {
+      if (error instanceof ClaudeRetirementFault)
+        return { type: 'failed', code: 'provider-failed' };
       return signal.aborted
         ? { type: 'stopped' }
         : { type: 'failed', code: error instanceof ProviderFault ? error.code : 'provider-failed' };

@@ -4,6 +4,9 @@ import { ClaudeWire } from './claude-wire';
 import { ProviderFault } from './fault';
 import { createProcessTransport, type ProcessTransport } from './process-transport';
 
+/** A cancelled turn must still report failure when owned retirement is unconfirmed. */
+export class ClaudeRetirementFault extends ProviderFault {}
+
 interface ClaudeExchangeRequest {
   profile: ResolvedProfile;
   sessionId: string;
@@ -67,6 +70,8 @@ export async function claudeExchange(
   } finally {
     clearTimeout(timer);
     signal.removeEventListener('abort', abort);
-    await process?.close();
+    await process?.close().catch(() => {
+      throw new ClaudeRetirementFault();
+    });
   }
 }
