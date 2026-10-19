@@ -14,7 +14,7 @@ Use GitHub Issues as the implementation tracker. Read the issue's current outcom
 | [#6](../../../../issues/6) | Profile and conversation UI                                                     | Foundation contracts             |
 | [#7](../../../../issues/7) | Main application service and complete flow integration                          | Storage, providers, and renderer |
 
-These are implementation tasks, not a claim that the features already work. Read each live issue for its exact acceptance criteria. Storage, provider, and renderer work should keep their [module boundaries](../architecture.md) and coordinate edits to [shared contracts](../../src/shared/contracts.ts).
+The foundation, storage, runtime, native adapters, and renderer are implemented; #7 owns their application-service, preload, and desktop assembly. Read each live issue for its acceptance criteria and closure state. Keep the [module boundaries](../architecture.md) and coordinate edits to [shared contracts](../../src/shared/contracts.ts). Local tests, hosted checks, and [native qualification](../native-qualification.md) are separate evidence.
 
 ## Delivery
 
