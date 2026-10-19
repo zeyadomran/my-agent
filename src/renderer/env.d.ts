@@ -1,7 +1,7 @@
-import type { ScaffoldBridge } from '../shared/contracts';
+import type { RendererBridge, ScaffoldBridge } from '../shared/contracts';
 
 declare global {
   interface Window {
-    myAgent: ScaffoldBridge;
+    myAgent?: ScaffoldBridge & Partial<RendererBridge>;
   }
 }
