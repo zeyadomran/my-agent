@@ -67,6 +67,8 @@ export class ClaudeWire {
         packet.is_error !== false ||
         this.finalText === undefined ||
         packet.result !== this.finalText ||
+        (packet.permission_denials !== undefined &&
+          (!Array.isArray(packet.permission_denials) || packet.permission_denials.length !== 0)) ||
         (this.messageId !== undefined && !this.stopped)
       )
         throw new ClaudeWireError();
@@ -94,6 +96,8 @@ export class ClaudeWire {
       if (
         packet.error !== undefined ||
         message.role !== 'assistant' ||
+        typeof message.id !== 'string' ||
+        message.id.length === 0 ||
         (this.messageId !== undefined && message.id !== this.messageId) ||
         !Array.isArray(message.content)
       )
