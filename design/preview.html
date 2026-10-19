@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>my-agent — UI prototype (mock)</title>
+    <link rel="stylesheet" href="./styles/primitives.css" />
+    <link rel="stylesheet" href="./styles/conversation.css" />
+    <link rel="stylesheet" href="./styles/settings.css" />
+  </head>
+  <body>
+    <div class="proto" role="region" aria-label="Prototype controls">
+      <b>Prototype controls (not part of the app)</b>
+      <span class="grp"
+        >State:
+        <button data-proto="view" data-v="populated" aria-pressed="true">Populated</button>
+        <button data-proto="view" data-v="empty" aria-pressed="false">Empty</button>
+      </span>
+      <span class="grp"
+        >Active agent:
+        <button data-proto="status" data-v="connected" aria-pressed="true">Connected</button>
+        <button data-proto="status" data-v="error" aria-pressed="false">Error</button>
+      </span>
+      <span class="grp"
+        >Theme:
+        <button data-proto="theme" data-v="light" aria-pressed="true">Light</button>
+        <button data-proto="theme" data-v="dark" aria-pressed="false">Dark</button>
+      </span>
+    </div>
+
+    <div class="stage">
+      <div class="app theme" id="app">
+        <header class="header" id="header"></header>
+        <main class="transcript" id="transcript" aria-live="polite"></main>
+        <div class="composer-wrap" id="composerWrap"></div>
+        <div id="layer"></div>
+        <div class="toasts" id="toasts"></div>
+      </div>
+    </div>
+
+    <script src="./scripts/state.js"></script>
+    <script src="./scripts/conversation.js"></script>
+    <script src="./scripts/settings.js"></script>
+    <script src="./scripts/settings-actions.js"></script>
+    <script src="./scripts/events.js"></script>
+  </body>
+</html>

@@ -1,0 +1,49 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '13:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ['*']
+    commit-message:
+      prefix: ci
+  - package-ecosystem: npm
+    directory: /
+    # Keep TypeScript 6 until the lint toolchain supports TypeScript 7.
+    ignore:
+      - dependency-name: typescript
+        versions: ['>=7']
+    schedule:
+      interval: weekly
+      day: monday
+      time: '13:00'
+      timezone: Etc/UTC
+    open-pull-requests-limit: 5
+    groups:
+      react:
+        patterns: ['react', 'react-dom', '@types/react', '@types/react-dom']
+      tailwind:
+        patterns: ['tailwindcss', '@tailwindcss/*']
+      lint-and-format:
+        patterns:
+          [
+            'eslint',
+            '@eslint/*',
+            'eslint-*',
+            'typescript-eslint',
+            'prettier',
+            'globals',
+            'lint-staged',
+          ]
+      build-tooling:
+        patterns: ['electron', '@electron/*', 'electron-vite', 'vite', '@vitejs/*']
+      remaining-npm:
+        patterns: ['*']
+    commit-message:
+      prefix: build
