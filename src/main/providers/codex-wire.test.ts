@@ -25,12 +25,20 @@ test('Codex bounds accumulated turn text even when the consumer keeps draining',
     turnId: 'turn-1',
     item: { type: 'agentMessage', id: 'item-1', text: '' },
   });
+  const params = {
+    threadId: 'owned-thread',
+    turnId: 'turn-1',
+    itemId: 'item-1',
+    delta: 'x'.repeat(128 * 1024),
+  };
+  expect(
+    Buffer.byteLength(JSON.stringify({ method: 'item/agentMessage/delta', params })),
+  ).toBeLessThan(256 * 1024);
+  for (let index = 0; index < 4; index++) turn.accept('item/agentMessage/delta', params);
   expect(() => {
     turn.accept('item/agentMessage/delta', {
-      threadId: 'owned-thread',
-      turnId: 'turn-1',
-      itemId: 'item-1',
-      delta: 'x'.repeat(512 * 1024 + 1),
+      ...params,
+      delta: 'x',
     });
   }).toThrow('provider-failed');
 });
