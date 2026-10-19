@@ -1,6 +1,6 @@
 # Codex provider
 
-Issue #4 adds the main-only `createCodexAdapter(options?)` factory in [codex.ts](../src/main/providers/codex.ts), implementing the existing [ProviderAdapter contract](../src/shared/contracts.ts). It uses the [shared runtime](../src/main/providers/README.md); application-service wiring belongs to the integration issue. There is no renderer tool bridge or configuration-management feature.
+The main-only `createCodexAdapter(options?)` factory in [codex.ts](../src/main/providers/codex.ts) implements the [ProviderAdapter contract](../src/shared/contracts.ts). It uses the [shared runtime](../src/main/providers/README.md) and is registered with the [application service](application-service.md) for profile connection tests and durable conversation runs. There is no renderer tool bridge or native Codex configuration-management feature.
 
 ## Native protocol and configuration
 
