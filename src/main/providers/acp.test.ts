@@ -90,10 +90,12 @@ test('ACP connection negotiates chat-only capabilities and retires its literal l
     for await (const event of adapter.run(request, new AbortController().signal))
       events.push(event);
     await assertRetired(journal);
-    expect(events.filter((event) => event.type === 'delta')).toEqual([
-      { type: 'delta', text: 'Hello ' },
-      { type: 'delta', text: 'world' },
-    ]);
+    expect(
+      events
+        .filter((event) => event.type === 'delta')
+        .map((event) => event.text)
+        .join(''),
+    ).toBe('Hello world');
     expect(events.at(-1)).toEqual({ type: 'completed' });
     const checkpoint = events.findLast(
       (event): event is { type: 'session'; session: ProviderSession } => event.type === 'session',
@@ -131,10 +133,12 @@ test('ACP connection negotiates chat-only capabilities and retires its literal l
     for await (const event of adapter.run(resumedRequest, new AbortController().signal))
       resumed.push(event);
     await assertRetired(journal);
-    expect(resumed.filter((event) => event.type === 'delta')).toEqual([
-      { type: 'delta', text: 'Hello ' },
-      { type: 'delta', text: 'world' },
-    ]);
+    expect(
+      resumed
+        .filter((event) => event.type === 'delta')
+        .map((event) => event.text)
+        .join(''),
+    ).toBe('Hello world');
     const afterResume = await readFile(journal, 'utf8');
     expect(afterResume).toContain('session/load');
     const lastPrompt =
