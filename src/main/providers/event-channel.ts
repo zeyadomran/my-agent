@@ -9,10 +9,22 @@ export class EventChannel {
   private bytes = 0;
 
   push(event: ProviderEvent) {
-    const bytes = event.type === 'delta' ? Buffer.byteLength(event.text) : 0;
-    if (this.queue.length >= 256 || this.bytes + bytes > 512 * 1024) throw new ProviderFault();
+    let bytes = event.type === 'delta' ? Buffer.byteLength(event.text) : 0;
+    const tail = this.queue.at(-1);
+    if (event.type === 'delta' && tail?.event.type === 'delta') {
+      // Joining a split UTF-16 surrogate pair changes its UTF-8 byte count.
+      const end = tail.event.text.slice(-1);
+      const start = event.text.slice(0, 1);
+      bytes += Buffer.byteLength(end + start) - Buffer.byteLength(end) - Buffer.byteLength(start);
+    }
+    if (this.bytes + bytes > 512 * 1024) throw new ProviderFault();
+    if (event.type === 'delta' && tail?.event.type === 'delta') {
+      tail.event = { type: 'delta', text: tail.event.text + event.text };
+    } else {
+      if (this.queue.length >= 256) throw new ProviderFault();
+      this.queue.push({ event });
+    }
     this.bytes += bytes;
-    this.queue.push({ event });
     this.wake?.();
   }
 
