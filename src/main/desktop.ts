@@ -50,7 +50,27 @@ export function startDesktop(createAdapters: () => readonly ProviderAdapter[]): 
   let window: BrowserWindow | null = null;
   let service: ApplicationService | null = null;
   let retired = false;
+  let quitRequested = false;
   let retiring: Promise<void> | undefined;
+
+  function retire(): void {
+    retiring ??= (async () => {
+      try {
+        await service?.shutdown();
+      } catch {
+        dialog.showErrorBox(
+          'Shutdown incomplete',
+          'The app could not finish saving or retiring its agent. Reopen to inspect the saved conversation.',
+        );
+      } finally {
+        retired = true;
+        // Electron must leave the canceled quit dispatch before starting its final cycle.
+        setImmediate(() => {
+          app.quit();
+        });
+      }
+    })();
+  }
 
   function createWindow(): void {
     window = new BrowserWindow({
@@ -88,9 +108,11 @@ export function startDesktop(createAdapters: () => readonly ProviderAdapter[]): 
         noLink: true,
       });
       if (response === 1) event.preventDefault();
+      else quitRequested = false;
     });
     owned.on('closed', () => {
       if (window === owned) window = null;
+      if (quitRequested) retire();
     });
     void owned.loadURL(documentUrl).catch(() => {
       dialog.showErrorBox(
@@ -110,22 +132,20 @@ export function startDesktop(createAdapters: () => readonly ProviderAdapter[]): 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
   });
-  app.on('will-quit', (event) => {
+  app.on('before-quit', (event) => {
     if (retired) return;
     event.preventDefault();
-    retiring ??= (async () => {
-      try {
-        await service?.shutdown();
-      } catch {
-        dialog.showErrorBox(
-          'Shutdown incomplete',
-          'The app could not finish saving or retiring its agent. Reopen to inspect the saved conversation.',
-        );
-      } finally {
-        retired = true;
-        app.quit();
-      }
-    })();
+    if (window === null) {
+      quitRequested = true;
+      retire();
+      return;
+    }
+    if (quitRequested) return;
+    quitRequested = true;
+    setImmediate(() => {
+      if (window === null) retire();
+      else window.close();
+    });
   });
 
   void app
@@ -191,7 +211,7 @@ export function startDesktop(createAdapters: () => readonly ProviderAdapter[]): 
       });
       createWindow();
       app.on('activate', () => {
-        if (window === null && !retired) createWindow();
+        if (window === null && !retired && retiring === undefined) createWindow();
       });
     })
     .catch((error: unknown) => {
