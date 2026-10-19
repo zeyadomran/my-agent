@@ -1,9 +1,8 @@
 import { watch } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
-import { afterEach, expect, test } from 'vitest';
+import { expect, test } from 'vitest';
 
 import type {
   ProviderEvent,
@@ -12,60 +11,12 @@ import type {
   ResolvedProfile,
 } from '../../shared/contracts';
 import { createAcpAdapter } from './acp';
+import { assertRetired, fixture, makeDirectory, records, scenario } from './fixtures/harness';
+import { createProcessTransport } from './process-transport';
 import { createRpcTransport } from './rpc-transport';
 
-const fixture = resolve('src/main/providers/fixtures/acp-agent.mjs');
-const owned: string[] = [];
-interface FixtureRecord {
-  pid?: number;
-  descendant?: number;
-  method?: string;
-}
-async function records(journal: string): Promise<FixtureRecord[]> {
-  return (await readFile(journal, 'utf8'))
-    .trim()
-    .split('\n')
-    .map((line: string) => JSON.parse(line) as FixtureRecord);
-}
-async function assertRetired(journal: string) {
-  for (const entry of await records(journal)) {
-    for (const pid of [entry.pid, entry.descendant]) {
-      if (pid !== undefined) expect(() => process.kill(pid, 0)).toThrow();
-    }
-  }
-}
-async function scenario(behavior: object = {}) {
-  const directory = await mkdtemp(join(tmpdir(), 'acp-owned-'));
-  owned.push(directory);
-  const journal = join(directory, 'journal.jsonl');
-  await writeFile(join(directory, 'behavior.json'), JSON.stringify(behavior));
-  const profile: ResolvedProfile = {
-    id: 'fixture',
-    kind: 'acp',
-    name: 'Fixture',
-    executable: process.execPath,
-    args: [fixture],
-    cwd: directory,
-    env: [{ name: 'FIXTURE_JOURNAL', value: journal }],
-  };
-  const request: ProviderRunRequest = {
-    runId: 'fixture-run',
-    userMessageId: 'user',
-    assistantMessageId: 'answer',
-    profile,
-    transcript: [],
-    prompt: 'Harmless fixture prompt',
-    session: null,
-  };
-  return { directory, journal, profile, request };
-}
-afterEach(async () => {
-  for (const directory of owned.splice(0)) await rm(directory, { recursive: true, force: true });
-});
-
 test('ACP connection negotiates chat-only capabilities and retires its literal launch', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'acp-flow-'));
-  owned.push(directory);
+  const directory = await makeDirectory();
   const journal = join(directory, 'journal.jsonl');
   const profile: ResolvedProfile = {
     id: 'local',
@@ -329,6 +280,47 @@ test.each([
     await adapter.dispose();
   }
 });
+
+test.each([0, 9])(
+  'finite process EOF drains final stdout before reporting exit %s',
+  async (exitCode) => {
+    const { profile, journal } = await scenario({ finite: true, exitCode });
+    const lines: string[] = [];
+    let onExit: (code: number | null, signal: NodeJS.Signals | null) => void = () => {
+      /* Bound before launch. */
+    };
+    let onFailure: (error: Error) => void = () => {
+      /* Bound before launch. */
+    };
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+      (resolveExit, reject) => {
+        onExit = (code, signal) => {
+          resolveExit({ code, signal });
+        };
+        onFailure = reject;
+      },
+    );
+    const transport = createProcessTransport(profile, {
+      onLine(line) {
+        lines.push(line);
+      },
+      onExit,
+      onFailure,
+    });
+    try {
+      transport.send(JSON.stringify({ method: 'fixture/finite' }));
+      transport.endInput();
+      expect(() => {
+        transport.send('late');
+      }).toThrow('provider-failed');
+      expect(await exited).toEqual({ code: exitCode, signal: null });
+      expect(lines).toEqual(['finite final output']);
+      await assertRetired(journal);
+    } finally {
+      await transport.close();
+    }
+  },
+);
 
 test.each([false, true])(
   'cancellation drains the owned tree and leaves no reusable partial session (uncooperative=%s)',

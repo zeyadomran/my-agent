@@ -31,7 +31,14 @@ const complete = () => {
     });
   send({ id: pendingPrompt, result: { stopReason: 'end_turn' } });
 };
-createInterface({ input: process.stdin }).on('line', (line) => {
+const input = createInterface({ input: process.stdin });
+input.on('close', () => {
+  if (behavior.finite === true)
+    process.stdout.write('finite final output', () => {
+      process.exit(behavior.exitCode ?? 0);
+    });
+});
+input.on('line', (line) => {
   const message = JSON.parse(line);
   record(message);
   if (message.method === 'initialize') {

@@ -11,11 +11,15 @@ import windowsSupervisor from './windows-supervisor.ps1?raw';
 export interface ProcessTransportOptions {
   onLine(line: string): void;
   onFailure(fault: ProviderFault): void;
+  /** Natural exit after streams drain; when supplied, the consumer interprets exit status. */
+  onExit?(code: number | null, signal: NodeJS.Signals | null): void;
 }
 
 export interface ProcessTransport {
   /** One UTF-8 line, without the newline. Bounded queued writes. */
   send(line: string): void;
+  /** EOF only. Does not start a forced-retirement deadline; later sends are rejected. */
+  endInput(): void;
   /** Idempotent; resolves after the owned child closes, including failed startup. */
   close(): Promise<void>;
 }
@@ -73,6 +77,7 @@ export function createProcessTransport(
   let closed = false;
   let closing: Promise<void> | undefined;
   let failed = false;
+  let inputEnded = false;
   let frame = Buffer.alloc(0);
   let outputBytes = 0;
   let stderrBytes = 0;
@@ -117,10 +122,12 @@ export function createProcessTransport(
       }
     }
   });
-  child.on('close', () => {
+  child.on('close', (code, signal) => {
     closed = true;
     resolveClosed();
-    fail();
+    if (!failed && closing === undefined && options.onExit !== undefined)
+      options.onExit(code, signal);
+    else fail();
   });
   child.stderr.on('data', (chunk: Buffer) => {
     // Drain but never retain or log diagnostics. Excess diagnostics retire the process.
@@ -157,10 +164,20 @@ export function createProcessTransport(
       start = newline + 1;
     }
   });
+  child.stdout.on('end', () => {
+    if (frame.length === 0 || failed || closing !== undefined) return;
+    try {
+      const line = decoder.decode(frame);
+      frame = Buffer.alloc(0);
+      options.onLine(line);
+    } catch {
+      fail();
+    }
+  });
 
   async function closeChild() {
     if (hasClosed()) return;
-    child.stdin.end();
+    endInput();
     // Give cooperative agents EOF first. No arbitrary sleep: race the close event.
     let grace: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([
@@ -200,10 +217,17 @@ export function createProcessTransport(
     }
   }
 
+  function endInput() {
+    if (inputEnded) return;
+    inputEnded = true;
+    child.stdin.end();
+  }
+
   return {
     send(line) {
       if (
         failed ||
+        inputEnded ||
         closing !== undefined ||
         closed ||
         Buffer.byteLength(line) > MAX_FRAME_BYTES ||
@@ -213,6 +237,7 @@ export function createProcessTransport(
       }
       child.stdin.write(`${line}\n`);
     },
+    endInput,
     close() {
       closing ??= closeChild();
       return closing;

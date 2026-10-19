@@ -52,6 +52,7 @@ public static class OwnedAgentProcess {
   [DllImport("kernel32.dll")] static extern IntPtr GetStdHandle(int handle);
   [DllImport("kernel32.dll", SetLastError = true)] static extern uint ResumeThread(IntPtr thread);
   [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+  [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetExitCodeProcess(IntPtr process, out uint code);
   [DllImport("kernel32.dll")] static extern bool TerminateProcess(IntPtr process, uint code);
   [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
 
@@ -69,7 +70,7 @@ public static class OwnedAgentProcess {
     return result.ToString();
   }
 
-  public static void Run(string executable, string[] args, string cwd) {
+  public static int Run(string executable, string[] args, string cwd) {
     IntPtr job = CreateJobObject(IntPtr.Zero, null);
     if (job == IntPtr.Zero) throw new Win32Exception();
     PROCESSINFO process = new PROCESSINFO();
@@ -97,6 +98,9 @@ public static class OwnedAgentProcess {
       if (!CreateProcess(executable, command, IntPtr.Zero, IntPtr.Zero, true, 0x08080004, IntPtr.Zero, cwd, ref startup, out process)) throw new Win32Exception();
       if (ResumeThread(process.hThread) == uint.MaxValue) throw new Win32Exception();
       WaitForSingleObject(process.hProcess, uint.MaxValue);
+      uint exitCode;
+      if (!GetExitCodeProcess(process.hProcess, out exitCode)) throw new Win32Exception();
+      return unchecked((int)exitCode);
     } finally {
       // Also retire descendants when the provider root exits early. No PID lookup.
       if (process.hProcess != IntPtr.Zero) TerminateProcess(process.hProcess, 1);
@@ -110,8 +114,8 @@ public static class OwnedAgentProcess {
   }
 }
 '@
-  [OwnedAgentProcess]::Run([string]$launch.executable, [string[]]$launch.args, [string]$launch.cwd)
-  exit 0
+  $exitCode = [OwnedAgentProcess]::Run([string]$launch.executable, [string[]]$launch.args, [string]$launch.cwd)
+  exit $exitCode
 } catch {
   # Do not render native exceptions, launch data, or inherited environment.
   exit 1
