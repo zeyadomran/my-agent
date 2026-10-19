@@ -16,6 +16,7 @@ import type {
 import { openStorage, type Storage } from '../storage';
 import { createClaudeCodeAdapter } from './claude-code';
 import { assertRetired, makeDirectory } from './fixtures/harness';
+import { verifyInactivity } from './fixtures/turn-clock';
 
 interface Entry {
   args?: string[];
@@ -409,6 +410,12 @@ test('Claude bounds oversized history and rejects oversized current input withou
   } finally {
     await adapter.dispose();
   }
+});
+
+test('Claude permits active reasoning beyond two minutes but retires inactive turns', async () => {
+  const { request, journal } = await scenario({ controlledTurn: true });
+  await verifyInactivity(createClaudeCodeAdapter(), request);
+  await assertRetired(journal);
 });
 
 test('Claude reports retirement failure during Stop instead of a successful stopped outcome', async () => {

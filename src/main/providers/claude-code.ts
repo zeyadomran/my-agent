@@ -11,7 +11,9 @@ import { transcriptPrompt } from './transcript';
 
 export interface ClaudeCodeAdapterOptions {
   requestTimeoutMs?: number;
+  /** Validated current-session inactivity, not an absolute turn duration. */
   promptTimeoutMs?: number;
+  absoluteTimeoutMs?: number;
 }
 
 export function createClaudeCodeAdapter(options: ClaudeCodeAdapterOptions = {}): ProviderAdapter {
@@ -67,6 +69,9 @@ export function createClaudeCodeAdapter(options: ClaudeCodeAdapterOptions = {}):
           prompt,
           signal,
           timeoutMs: options.promptTimeoutMs ?? 120_000,
+          ...(options.absoluteTimeoutMs === undefined
+            ? {}
+            : { absoluteTimeoutMs: options.absoluteTimeoutMs }),
           onDelta(text) {
             channel.push({ type: 'delta', text });
           },

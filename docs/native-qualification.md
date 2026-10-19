@@ -31,3 +31,7 @@ The correction cancels the first quit cycle before closing the window, honors it
 ## Limits
 
 These checks establish the bounded paths above, not every model, CLI version, managed policy, native IME/accessibility configuration, live cancellation scenario, or third-party ACP implementation. Codex/Claude live chat does not establish absolute tool interception. Provider restrictions, encoded handoff budgets, native context/compaction behavior, and failure semantics remain described in the [ACP runtime](../src/main/providers/README.md), [Codex adapter](codex-provider.md), [Claude adapter](../src/main/providers/claude-code.md), and [service contract](application-service.md). No destructive permission probe, release, installer, signing, or updater qualification was performed.
+
+## Later context and deadline changes
+
+The observations above belong to the historical artifact recorded here. Later bounded whole-message handoff/disclosure and protocol-inactivity/absolute-cap changes are covered by controlled functional tests; they do not inherit manual native qualification from that artifact. Final artifact native qualification is pending and must record its exact commit/build and observed scope separately.

@@ -11,6 +11,7 @@ import type {
   ResolvedProfile,
 } from '../../shared/contracts';
 import { createCodexAdapter } from './codex';
+import { verifyInactivity } from './fixtures/turn-clock';
 
 const owned: string[] = [];
 const confirmedRetired = new Set<string>();
@@ -293,12 +294,11 @@ test('Codex dispose releases a consumer paused at the persistence checkpoint', a
   }
 }, 10_000);
 
-test('Codex retires a timed-out turn even without a completion notification', async () => {
-  const fixture = await scenario({ stall: true });
-  const adapter = createCodexAdapter({ turnTimeoutMs: 100 });
+test('Codex permits active reasoning beyond two minutes but retires inactive turns', async () => {
+  const fixture = await scenario({ controlledTurn: true });
+  const adapter = createCodexAdapter();
   try {
-    const events = await collect(adapter.run(fixture.request, new AbortController().signal));
-    expect(events.at(-1)).toEqual({ type: 'failed', code: 'provider-failed' });
+    await verifyInactivity(adapter, fixture.request);
     expect((await records(fixture.journal)).some((entry) => entry.interrupted === true)).toBe(true);
     await retired(fixture.journal);
   } finally {

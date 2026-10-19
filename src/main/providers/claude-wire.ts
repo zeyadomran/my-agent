@@ -28,6 +28,7 @@ export class ClaudeWire {
   constructor(
     readonly sessionId: string,
     readonly onDelta: (text: string) => void,
+    private readonly onActivity?: () => void,
   ) {}
 
   accept(line: string): void {
@@ -86,6 +87,7 @@ export class ClaudeWire {
         )
           throw new ClaudeWireError();
         this.initialized = true;
+        this.onActivity?.();
       } else if (!this.initialized) throw new ClaudeWireError();
       return;
     }
@@ -126,12 +128,14 @@ export class ClaudeWire {
       this.finalText = undefined;
       this.stopped = false;
       this.blocks.clear();
+      this.onActivity?.();
       return;
     }
     if (this.messageId === undefined || this.stopped) throw new ClaudeWireError();
     if (event.type === 'message_stop') {
       if (this.blocks.size !== 0) throw new ClaudeWireError();
       this.stopped = true;
+      this.onActivity?.();
       return;
     }
     if (event.type === 'message_delta') {
@@ -151,8 +155,10 @@ export class ClaudeWire {
         throw new ClaudeWireError();
       this.blocks.set(index, text(block.type));
       if (block.type === 'text') this.emit(text(block.text));
+      this.onActivity?.();
     } else if (event.type === 'content_block_stop') {
       if (!this.blocks.delete(index)) throw new ClaudeWireError();
+      this.onActivity?.();
     } else if (event.type === 'content_block_delta') {
       const kind = this.blocks.get(index);
       const delta = record(event.delta);
@@ -164,11 +170,18 @@ export class ClaudeWire {
         (delta.type !== 'thinking_delta' && delta.type !== 'signature_delta')
       )
         throw new ClaudeWireError();
+      else {
+        const progress = text(delta.type === 'thinking_delta' ? delta.thinking : delta.signature);
+        if (progress.length > 0) this.onActivity?.();
+      }
     } else throw new ClaudeWireError();
   }
 
   private emit(value: string) {
     this.messageText += value;
-    if (value.length !== 0) this.onDelta(value);
+    if (value.length !== 0) {
+      this.onDelta(value);
+      this.onActivity?.();
+    }
   }
 }

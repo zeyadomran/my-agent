@@ -13,6 +13,7 @@ export function codexId(value: unknown): string {
 export class CodexTurn {
   turnId: string | undefined;
   private finished = false;
+  private started = false;
   private textBytes = 0;
   private readonly items = new Map<string, { type: string; text: string; complete: boolean }>();
   constructor(
@@ -27,7 +28,7 @@ export class CodexTurn {
     this.turnId = id;
   }
 
-  accept(method: string, params: unknown) {
+  accept(method: string, params: unknown): boolean {
     if (
       ![
         'turn/started',
@@ -35,18 +36,22 @@ export class CodexTurn {
         'item/started',
         'item/completed',
         'item/agentMessage/delta',
+        'item/reasoning/textDelta',
+        'item/reasoning/summaryTextDelta',
         'error',
         'thread/compacted',
       ].includes(method)
     )
-      return;
+      return false;
     const data = codexObject(params);
     if (data.threadId !== this.threadId || this.finished) throw new Error('provider-failed');
     if (method === 'turn/started') {
       this.bind(data.turn);
-      return;
+      const changed = !this.started;
+      this.started = true;
+      return changed;
     }
-    if (method === 'thread/compacted') return;
+    if (method === 'thread/compacted') return false;
     if (method === 'turn/completed') {
       const turn = codexObject(data.turn);
       this.bind(turn);
@@ -58,12 +63,25 @@ export class CodexTurn {
       for (const item of turn.items) this.item(codexObject(item), true);
       this.finished = true;
       this.complete?.(String(turn.status));
-      return;
+      return true;
     }
     if (this.turnId === undefined || data.turnId !== this.turnId)
       throw new Error('provider-failed');
     if (method === 'error') {
       if (data.willRetry !== true) throw new Error('provider-failed');
+      return false;
+    } else if (method.startsWith('item/reasoning/')) {
+      const item = this.items.get(codexId(data.itemId));
+      const index = method === 'item/reasoning/textDelta' ? data.contentIndex : data.summaryIndex;
+      if (
+        item?.type !== 'reasoning' ||
+        item.complete ||
+        typeof data.delta !== 'string' ||
+        !Number.isSafeInteger(index) ||
+        Number(index) < 0
+      )
+        throw new Error('provider-failed');
+      return data.delta.length > 0;
     } else if (method === 'item/agentMessage/delta') {
       const item = this.items.get(codexId(data.itemId));
       if (item?.type !== 'agentMessage' || item.complete || typeof data.delta !== 'string')
@@ -71,7 +89,13 @@ export class CodexTurn {
       this.count(data.delta);
       item.text += data.delta;
       this.delta?.(data.delta);
-    } else this.item(codexObject(data.item), method === 'item/completed');
+      return data.delta.length > 0;
+    } else {
+      const value = codexObject(data.item);
+      const previous = this.items.get(codexId(value.id));
+      this.item(value, method === 'item/completed');
+      return previous?.complete !== true;
+    }
   }
 
   private item(value: Record<string, unknown>, completed: boolean) {

@@ -24,7 +24,7 @@ Before submitting input, a non-reusable checkpoint (`lastMessageId: null`) waits
 
 Thread, turn, and text-item identities are correlated. Stream deltas and final text suffixes are emitted once; reasoning and compaction records do not become assistant text. Native compaction does not erase the permanent app transcript. The current shared event contract has no separate compaction/status event. A turn retains at most 512 KiB of assistant text and 256 items, alongside the shared transport limits.
 
-Cancellation attempts `turn/interrupt` for the owned active turn, then closes the process even when interruption fails. Defaults are 10 seconds per setup/RPC request, 120 seconds per turn, and 1 second for interruption, followed by the shared bounded retirement procedure. Disposal aborts active runs, releases checkpoint waits, and drains all owned connections. Exactly one terminal event follows cleanup; shutdown failure is reported as failure rather than successful cancellation.
+Cancellation attempts `turn/interrupt` for the owned active turn, then closes the process even when interruption fails. Defaults are 10 seconds per setup/RPC request, 120 seconds of validated current-turn inactivity with a separate 30-minute absolute cap, and 1 second for interruption, followed by the shared bounded retirement procedure. Disposal aborts active runs, releases checkpoint waits, and drains all owned connections. Exactly one terminal event follows cleanup; shutdown failure is reported as failure rather than successful cancellation.
 
 ## Validation and limits
 

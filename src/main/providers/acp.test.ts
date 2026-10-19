@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { watch } from 'node:fs';
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { expect, test } from 'vitest';
 
@@ -20,6 +20,7 @@ import {
   scenario,
   simulatePidReuse,
 } from './fixtures/harness';
+import { verifyInactivity } from './fixtures/turn-clock';
 import { createProcessTransport } from './process-transport';
 import { createRpcTransport } from './rpc-transport';
 
@@ -215,6 +216,10 @@ test('ACP connection negotiates chat-only capabilities and retires its literal l
         '@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\nIF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n) ELSE (\r\n  SET "_prog=node"\r\n  SET PATHEXT=%PATHEXT:;.JS;=;%\r\n)\r\nendLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%" "%dp0%\\entry.mjs" %*\r\n',
       );
       await copyFile(fixture, join(bin, 'entry.mjs'));
+      await copyFile(
+        resolve('src/main/providers/fixtures/turn-control.mjs'),
+        join(bin, 'turn-control.mjs'),
+      );
       await writeFile(join(bin, 'fixture-agent'), '#!/bin/sh\nexit 99\n');
       const shimProfile = {
         ...profile,
@@ -384,6 +389,18 @@ test.each([false, true])(
     }
   },
 );
+
+test('ACP permits active reasoning beyond two minutes but retires inactive turns', async () => {
+  const { request, journal } = await scenario({ controlledTurn: true });
+  await verifyInactivity(createAcpAdapter(), request);
+  await assertRetired(journal);
+});
+
+test('active ACP progress cannot extend the separate absolute safety cap', async () => {
+  const { request, journal } = await scenario({ controlledTurn: true });
+  await verifyInactivity(createAcpAdapter({ absoluteTimeoutMs: 240_000 }), request, 'absolute');
+  await assertRetired(journal);
+});
 
 test('dispose and abandoned iteration both retire an active provider', async () => {
   const { request, journal } = await scenario({ holdPrompt: true, ignoreCancel: true });

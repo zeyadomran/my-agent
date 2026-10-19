@@ -17,10 +17,13 @@ import { EventChannel } from './event-channel';
 import { ProviderFault, RpcResponseFault } from './fault';
 import { createRpcTransport, type RpcTransport } from './rpc-transport';
 import { profileFingerprint, transcriptPrompt } from './transcript';
+import { TurnDeadline } from './turn-deadline';
 
 export interface CodexAdapterOptions {
   requestTimeoutMs?: number;
+  /** Validated current-turn inactivity, not an absolute turn duration. */
   turnTimeoutMs?: number;
+  absoluteTimeoutMs?: number;
   interruptTimeoutMs?: number;
 }
 
@@ -48,7 +51,7 @@ export function createCodexAdapter(options: CodexAdapterOptions = {}): ProviderA
     let failTurn: ((error: unknown) => void) | undefined;
     let fault: Error | undefined;
     let stopping: Promise<void> | undefined;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let deadline: TurnDeadline | undefined;
     let terminal: ProviderEvent;
     const isAborted = () => signal.aborted;
     const fail = (error: unknown) => {
@@ -89,7 +92,7 @@ export function createCodexAdapter(options: CodexAdapterOptions = {}): ProviderA
         dialect: 'codex',
         onFailure: fail,
         onNotification(method, params) {
-          if (!signal.aborted) turn?.accept(method, params);
+          if (!signal.aborted && turn?.accept(method, params) === true) deadline?.activity();
         },
         onRequest(method) {
           // Return a refusal before ending the run; never surface native tool payloads.
@@ -192,15 +195,19 @@ export function createCodexAdapter(options: CodexAdapterOptions = {}): ProviderA
       void completion.catch(() => {
         /* Observed by the run below. */
       });
-      timer = setTimeout(() => {
-        fail(new ProviderFault());
-      }, options.turnTimeoutMs ?? 120_000);
+      deadline = new TurnDeadline(
+        () => {
+          fail(new ProviderFault());
+        },
+        options.turnTimeoutMs,
+        options.absoluteTimeoutMs,
+      );
       const started = codexObject(
         await rpc.request('turn/start', turnParams(prompt), requestTimeout),
       );
       turn.bind(started.turn);
       const status = await completion;
-      clearTimeout(timer);
+      deadline.close();
       failTurn = undefined;
       if (status === 'failed') throw new ProviderFault();
       if (status === 'interrupted' || isAborted()) terminal = { type: 'stopped' };
@@ -223,7 +230,7 @@ export function createCodexAdapter(options: CodexAdapterOptions = {}): ProviderA
         terminal = { type: 'failed', code: 'provider-failed' };
       }
     } finally {
-      clearTimeout(timer);
+      deadline?.close();
       signal.removeEventListener('abort', abort);
       try {
         await stopping;
