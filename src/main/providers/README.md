@@ -1,6 +1,6 @@
 # Provider runtime
 
-Issue #3 owns this main-only runtime. It uses the existing [provider contracts](../../shared/contracts.ts). No renderer, storage, or main assembly integration is included.
+This main-only runtime implements the [provider contracts](../../shared/contracts.ts). The [application service](../../../docs/application-service.md) connects its Codex, Claude Code, and ACP adapters to durable storage and the renderer through the narrow preload bridge; native processes and session metadata stay in main.
 
 ## APIs for adapter consumers
 
@@ -12,7 +12,7 @@ Issue #3 owns this main-only runtime. It uses the existing [provider contracts](
 - `transcriptPrompt(request, afterMessageId)` and `profileFingerprint(profile)` in [transcript.ts](transcript.ts) are reusable main-only helpers. The fingerprint is a configuration hash, never plaintext launch configuration. A missing marker must cause a new native session rather than a full replay into an existing session.
 - `createAcpAdapter(options?)` in [acp.ts](acp.ts) implements `ProviderAdapter`. Optional request/prompt timeouts default to 10/120 seconds. Each probe/run owns its connection. Abort, iterator return, `dispose()`, malformed output, and failed probes retire it. Consume exactly one terminal `completed`, `stopped`, or `failed` event for a fully consumed run.
 
-Shared contracts are unchanged. Codex and Claude adapters can use the process/RPC helpers independently of ACP. They remain responsible for their own wire protocol, permission policy, session checkpoints, and terminal outcomes.
+Codex and Claude Code adapters use the process/RPC helpers independently of ACP. They remain responsible for their own wire protocol, permission policy, session checkpoints, and terminal outcomes.
 
 `ProcessTransport.ready` resolves when the native process has been created under ownership. Native startup has a separate **30 second** deadline; failure, close, abort or disposal rejects pending readiness and retires the owned process. On Windows, the supervisor reports readiness after job assignment and successful thread resume using an opaque per-launch marker on stderr. Launch data and the marker are removed from the environment before the provider inherits it. The bounded stderr scanner retains only a marker-length suffix, never publishes diagnostics, and never forwards stderr as provider protocol or output. On POSIX, native spawn establishes readiness. Finite-process `onExit` still runs only after readiness and stdout/stderr drainage.
 

@@ -83,7 +83,7 @@ export interface SendRequest {
   content: string;
 }
 
-/** Target bridge. Only getState is exposed until the app service is implemented. */
+/** Narrow application bridge exposed by preload; main validates requests and owns mutations. */
 export interface RendererBridge {
   getState(): Promise<AppState>;
   saveProfile(profile: ProfileDraft): Promise<Result<AppState>>;

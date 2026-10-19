@@ -1,8 +1,17 @@
-﻿import type { ProfileDraft, ProfileSummary } from '../shared/contracts';
+﻿import type { ProfileDraft, ProfileSummary, Result } from '../shared/contracts';
 import type { RendererController } from './controller';
 
 export function profileDraft(profile: ProfileSummary): ProfileDraft {
   return { ...profile, args: [...profile.args], env: profile.env.map(({ name }) => ({ name })) };
+}
+
+function normalizeDraft(draft: ProfileDraft): ProfileDraft {
+  const { cwd, model, ...rest } = draft;
+  return {
+    ...rest,
+    ...(cwd === undefined || cwd.trim() === '' ? {} : { cwd }),
+    ...(model === undefined || model.trim() === '' ? {} : { model }),
+  };
 }
 
 export function validateDraft(draft: ProfileDraft): Record<string, string> {
@@ -77,15 +86,15 @@ export class ProfileEditor {
     this.isNew = false;
     this.revert();
   }
+  async testConnection(controller: RendererController): Promise<Result<null>> {
+    const { draft } = this.state;
+    if (Object.keys(validateDraft(draft)).length !== 0) return { ok: false, code: 'invalid-input' };
+    return controller.testConnection(normalizeDraft(draft));
+  }
   async save(controller: RendererController): Promise<boolean> {
     const { draft } = this.state;
     if (Object.keys(validateDraft(draft)).length !== 0) return false;
-    const { cwd, model, ...rest } = draft;
-    const app = await controller.saveProfile({
-      ...rest,
-      ...(cwd === undefined || cwd.trim() === '' ? {} : { cwd }),
-      ...(model === undefined || model.trim() === '' ? {} : { model }),
-    });
+    const app = await controller.saveProfile(normalizeDraft(draft));
     const saved = app?.profiles.find((profile) => profile.id === draft.id);
     if (saved === undefined) return false;
     if (this.state.draft === draft) this.saved(saved);
