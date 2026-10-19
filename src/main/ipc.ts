@@ -2,9 +2,15 @@ import type { IpcMainInvokeEvent, WebContents } from 'electron';
 
 import { channels } from '../shared/channels';
 import type { RendererBridge } from '../shared/contracts';
-import { environmentName, identifier, InputError, validateProfileDraft } from './input';
+import {
+  environmentName,
+  identifier,
+  InputError,
+  validateProfileDraft,
+  validateSend,
+} from './input';
 
-type ProfileService = Pick<
+type ApplicationCommands = Pick<
   RendererBridge,
   | 'getState'
   | 'saveProfile'
@@ -12,6 +18,8 @@ type ProfileService = Pick<
   | 'selectProfile'
   | 'testConnection'
   | 'revealEnvironmentValue'
+  | 'send'
+  | 'stop'
 >;
 export type InvokeHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => Promise<unknown>;
 
@@ -21,7 +29,7 @@ function unavailable(): never {
 }
 
 export function createIpcHandlers(
-  service: ProfileService,
+  service: ApplicationCommands,
   owner: () => WebContents | null,
   documentUrl: string,
 ): Record<string, InvokeHandler> {
@@ -55,6 +63,8 @@ export function createIpcHandlers(
     });
   return {
     [channels.getState]: wrap(0, () => service.getState()),
+    [channels.send]: wrap(1, (input) => service.send(validateSend(input))),
+    [channels.stop]: profileId(service.stop),
     [channels.saveProfile]: wrap(1, (input) => service.saveProfile(validateProfileDraft(input))),
     [channels.deleteProfile]: profileId(service.deleteProfile),
     [channels.selectProfile]: profileId(service.selectProfile),

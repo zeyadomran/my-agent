@@ -54,6 +54,17 @@ test('IPC admits only the owned current main document and narrowly validated arg
       { ok: false, code: 'invalid-input' },
     );
     expect(
+      await invoke(channels.send, event, {
+        requestId: 'one',
+        content: 'Synthetic request',
+        extra: true,
+      }),
+    ).toEqual({ ok: false, code: 'invalid-input' });
+    expect(await invoke(channels.stop, event, 'unknown', 'extra')).toEqual({
+      ok: false,
+      code: 'invalid-input',
+    });
+    expect(
       await invoke(channels.saveProfile, event, {
         id: 'local',
         name: 'Fixture',
