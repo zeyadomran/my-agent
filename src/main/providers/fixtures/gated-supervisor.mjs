@@ -3,6 +3,7 @@
 import { pathToFileURL } from 'node:url';
 
 const launch = JSON.parse(process.env.MY_AGENT_PROCESS_LAUNCH);
+process.stderr.write('Synthetic diagnostic before native readiness\n');
 process.send('startup-blocked');
 process.once('message', async () => {
   process.disconnect();

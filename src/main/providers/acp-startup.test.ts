@@ -16,8 +16,14 @@ function gateNativeStartup() {
   let reportBlocked = () => {
     /* Bound before launch. */
   };
-  const blocked = new Promise<void>((resolveBlocked) => {
+  let rejectBlocked: () => void = () => {
+    /* Bound before launch. */
+  };
+  const blocked = new Promise<void>((resolveBlocked, reject) => {
     reportBlocked = resolveBlocked;
+    rejectBlocked = () => {
+      reject(new Error('Owned supervisor exited before the startup gate'));
+    };
   });
   const nativeBoundary = vi
     .spyOn(childProcess, 'spawn')
@@ -35,6 +41,8 @@ function gateNativeStartup() {
       owned.once('message', () => {
         reportBlocked();
       });
+      owned.once('error', rejectBlocked);
+      owned.once('exit', rejectBlocked);
       return owned;
     });
   syncBuiltinESMExports();
