@@ -356,7 +356,7 @@ function EditorPane({
   }
   async function test() {
     if (!valid) return;
-    const result = await controller.testConnection(draft);
+    const result = await editor.testConnection(controller);
     setNotice({
       draft,
       text: result.ok

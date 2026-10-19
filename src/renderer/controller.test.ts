@@ -1,6 +1,13 @@
 import { expect, it } from 'vitest';
 
-import type { ActiveRun, AppEvent, AppState, RendererBridge, Result } from '../shared/contracts';
+import type {
+  ActiveRun,
+  AppEvent,
+  AppState,
+  ProfileDraft,
+  RendererBridge,
+  Result,
+} from '../shared/contracts';
 import { RendererController } from './controller';
 import { ProfileEditor } from './profile-editor';
 
@@ -142,7 +149,7 @@ it('retains a failed send, follows authoritative streaming/stop, and keeps the t
   controller.dispose();
 });
 
-it('saves literal profile drafts without reading retained secrets, retains failed edits, and deletes only inactive profiles', async () => {
+it('tests and saves literal profile drafts without reading retained secrets, retains failed edits, and deletes only inactive profiles', async () => {
   const external = boundary();
   const controller = new RendererController(external.bridge);
   await controller.start();
@@ -152,11 +159,66 @@ it('saves literal profile drafts without reading retained secrets, retains faile
     kind: 'acp',
     executable: 'agent',
     args: [],
-    env: [{ name: 'OWNED_VALUE', hasValue: true }],
+    env: [
+      { name: 'OWNED_VALUE', hasValue: true },
+      { name: 'EMPTY_VALUE', hasValue: true },
+    ],
   });
-  editor.edit({ args: ['--label', 'two words', ''], cwd: '', model: '' });
+  editor.edit({
+    args: ['--label', 'two words', ''],
+    cwd: '',
+    model: ' \t ',
+    env: [{ name: 'OWNED_VALUE' }, { name: 'EMPTY_VALUE', value: '' }],
+  });
+  let tested: ProfileDraft | undefined;
+  external.bridge.testConnection = (draft) => {
+    tested = draft;
+    return Promise.resolve({ ok: true, value: null });
+  };
+  const unsaved = editor.getSnapshot();
+  const appBeforeProbe = controller.getSnapshot().app;
+  expect(await editor.testConnection(controller)).toEqual({ ok: true, value: null });
+  const blankProfile: ProfileDraft = {
+    id: 'two',
+    name: 'Second',
+    kind: 'acp',
+    executable: 'agent',
+    args: ['--label', 'two words', ''],
+    env: [{ name: 'OWNED_VALUE' }, { name: 'EMPTY_VALUE', value: '' }],
+  };
+  expect(tested).toEqual(blankProfile);
+  expect(editor.getSnapshot()).toBe(unsaved);
+  expect(editor.requestLeave()).toBe(false);
+  expect(controller.getSnapshot().app).toBe(appBeforeProbe);
+  let saved: ProfileDraft | undefined;
+  external.bridge.saveProfile = (draft) => {
+    saved = draft;
+    return Promise.resolve({ ok: false, code: 'unavailable' });
+  };
   expect(await editor.save(controller)).toBe(false);
+  expect(saved).toEqual(blankProfile);
   expect(editor.getSnapshot().dirty).toBe(true);
+  editor.edit({ cwd: ' \t ', model: '' });
+  const whitespaceDraft = editor.getSnapshot();
+  expect(await editor.testConnection(controller)).toEqual({ ok: true, value: null });
+  expect(tested).not.toHaveProperty('cwd');
+  expect(tested).not.toHaveProperty('model');
+  expect(editor.getSnapshot()).toBe(whitespaceDraft);
+  editor.edit({ cwd: ' ./workspace ', model: ' selected-model ' });
+  const literalDraft = editor.getSnapshot();
+  expect(await editor.testConnection(controller)).toEqual({ ok: true, value: null });
+  expect(tested).toEqual({
+    id: 'two',
+    name: 'Second',
+    kind: 'acp',
+    executable: 'agent',
+    args: ['--label', 'two words', ''],
+    cwd: ' ./workspace ',
+    model: ' selected-model ',
+    env: [{ name: 'OWNED_VALUE' }, { name: 'EMPTY_VALUE', value: '' }],
+  });
+  expect(editor.getSnapshot()).toBe(literalDraft);
+  expect(controller.getSnapshot().app).toBe(appBeforeProbe);
   external.bridge.saveProfile = async (draft) => {
     expect(draft).toEqual({
       id: 'two',
@@ -164,7 +226,9 @@ it('saves literal profile drafts without reading retained secrets, retains faile
       kind: 'acp',
       executable: 'agent',
       args: ['--label', 'two words', ''],
-      env: [{ name: 'OWNED_VALUE' }],
+      cwd: ' ./workspace ',
+      model: ' selected-model ',
+      env: [{ name: 'OWNED_VALUE' }, { name: 'EMPTY_VALUE', value: '' }],
     });
     const state = await external.bridge.getState();
     return {
@@ -177,7 +241,12 @@ it('saves literal profile drafts without reading retained secrets, retains faile
             ? {
                 ...p,
                 args: ['--label', 'two words', ''],
-                env: [{ name: 'OWNED_VALUE', hasValue: true }],
+                cwd: ' ./workspace ',
+                model: ' selected-model ',
+                env: [
+                  { name: 'OWNED_VALUE', hasValue: true },
+                  { name: 'EMPTY_VALUE', hasValue: false },
+                ],
               }
             : p,
         ),
@@ -186,7 +255,10 @@ it('saves literal profile drafts without reading retained secrets, retains faile
   };
   expect(await editor.save(controller)).toBe(true);
   expect(editor.getSnapshot().dirty).toBe(false);
-  expect(editor.getSnapshot().draft.env).toEqual([{ name: 'OWNED_VALUE' }]);
+  expect(editor.getSnapshot().draft.env).toEqual([
+    { name: 'OWNED_VALUE' },
+    { name: 'EMPTY_VALUE' },
+  ]);
   const revealed = await controller.revealEnvironmentValue('two', 'OWNED_VALUE');
   expect(revealed).toEqual({ ok: true, value: 'owned-reveal' });
   expect(JSON.stringify(controller.getSnapshot())).not.toContain('owned-reveal');
