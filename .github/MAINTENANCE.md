@@ -4,7 +4,7 @@
 
 Changes enter `main` through PRs, including administrator changes. The repository uses squash merges only, deletes merged branches, and enables auto-merge and branch updates. Protection requires an up-to-date branch, resolved conversations, dismisses stale approvals, and blocks force pushes and deletion. Zero approving reviews are required for this solo-maintainer test app. Administrator enforcement applies; no bypass is part of the workflow.
 
-Register stable required check names only after their first successful hosted run. At foundation setup, required-check contexts are pending that verification. The intended required contexts are:
+The following status contexts are enabled as required checks after their first successful hosted run:
 
 - `Workflow validation`
 - `Functional checks (windows-latest)`
@@ -12,6 +12,8 @@ Register stable required check names only after their first successful hosted ru
 - `Analyze (actions)`
 - `Analyze (javascript-typescript)`
 - `Dependency review` (runs on PRs; skipped on main pushes)
+
+Also require the separate `CodeQL` findings check once its first clean scan is verified. Successful analyzer jobs alone do not establish that the findings check passed.
 
 Before an authorized merge, read back actual branch protection, verify the PR's full current head and every applicable check, and use a head-guarded squash merge. Do not infer that intended contexts are already enforced or that a workflow passed from the presence of its YAML. Auto-merge remains subject to protection.
 
