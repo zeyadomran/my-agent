@@ -11,7 +11,7 @@ import type {
 import { StorageError, storageError } from './errors';
 import { recover } from './recovery';
 import { loadSnapshot, saveSnapshot, type Snapshot } from './snapshot';
-import { record, summaries, validateTransition } from './validation';
+import { array, record, summaries, validateTransition } from './validation';
 
 export { StorageError } from './errors';
 
@@ -122,6 +122,7 @@ export async function openStorage(options: StorageOptions): Promise<Storage> {
       return mutate((next) => {
         record(copy, [], ['state', 'profiles', 'sessions']);
         if (copy.profiles !== undefined) {
+          array(copy.profiles);
           next.profiles = [...copy.profiles];
           next.sessions = next.sessions.filter((session) => {
             const before = current.profiles.find((item) => item.id === session.profileId);
@@ -135,7 +136,10 @@ export async function openStorage(options: StorageOptions): Promise<Storage> {
           if (!next.profiles.some((item) => item.id === next.state.activeProfileId))
             next.state.activeProfileId = null;
         }
-        if (copy.sessions !== undefined) next.sessions = [...copy.sessions];
+        if (copy.sessions !== undefined) {
+          array(copy.sessions);
+          next.sessions = [...copy.sessions];
+        }
         if (copy.state !== undefined) next.state = copy.state;
         else next.state.revision++;
       });

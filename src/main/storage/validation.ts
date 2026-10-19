@@ -26,8 +26,11 @@ function text(value: unknown, nonempty = false): asserts value is string {
   requireValue(typeof value === 'string' && (!nonempty || value.trim().length > 0));
 }
 
-function array(value: unknown): asserts value is unknown[] {
+export function array(value: unknown): asserts value is unknown[] {
   requireValue(Array.isArray(value));
+  for (let index = 0; index < value.length; index++) {
+    requireValue(Object.hasOwn(value, index));
+  }
 }
 
 function unique(values: unknown[]): void {

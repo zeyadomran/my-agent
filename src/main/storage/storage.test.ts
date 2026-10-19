@@ -254,7 +254,9 @@ test('invalid state cannot erase history, publish protected fields, or invent se
   const directory = await mkdtemp(join(tmpdir(), 'my-agent-validation-'));
   try {
     const storage = await openStorage({ directory, encryption });
-    await storage.profileStore.writeProfiles([profile]);
+    await storage.commit({ profiles: [], sessions: [] });
+    const profiles = [profile, { ...profile, id: 'empty', args: [], env: [] }];
+    await storage.profileStore.writeProfiles(profiles);
     const empty = await storage.conversationStore.read();
     const messages: DurableMessage[] = [
       {
@@ -268,8 +270,46 @@ test('invalid state cannot erase history, publish protected fields, or invent se
       },
     ];
     await storage.conversationStore.write({ ...empty, revision: empty.revision + 1, messages });
+    const session: ProviderSession = {
+      profileId: 'local',
+      kind: 'acp',
+      opaqueState: '{"id":"retained-session"}',
+      lastMessageId: 'retained',
+    };
+    await storage.profileStore.writeSession(session);
     const state = await storage.conversationStore.read();
     const committed = await readFile(join(directory, 'store.json'), 'utf8');
+    const sparse = <T>(items: T[]): T[] => {
+      const result = [...items];
+      result.length++;
+      return result;
+    };
+    const next = { ...state, revision: state.revision + 1 };
+    // Each snapshot collection once, through its public write boundary.
+    const sparseWrites = [
+      () => storage.profileStore.writeProfiles([{ ...profile, args: sparse(profile.args) }]),
+      () => storage.commit({ profiles: [{ ...profile, env: sparse(profile.env) }] }),
+      () => storage.profileStore.writeProfiles(sparse(profiles)),
+      () => storage.commit({ sessions: sparse([session]) }),
+      () => storage.conversationStore.write({ ...next, profiles: sparse(state.profiles) }),
+      () => storage.conversationStore.write({ ...next, messages: sparse(messages) }),
+      () =>
+        storage.conversationStore.write({
+          ...next,
+          profiles: state.profiles.map((item) => ({ ...item, args: sparse(item.args) })),
+        }),
+      () =>
+        storage.conversationStore.write({
+          ...next,
+          profiles: state.profiles.map((item) => ({ ...item, env: sparse(item.env) })),
+        }),
+    ];
+    for (const write of sparseWrites) {
+      await expect(write()).rejects.toMatchObject({
+        code: 'invalid-storage-input',
+        message: 'invalid-storage-input',
+      });
+    }
     await expect(storage.conversationStore.write(state)).rejects.toMatchObject({
       code: 'invalid-storage-input',
     });
@@ -304,13 +344,20 @@ test('invalid state cannot erase history, publish protected fields, or invent se
       }),
     ).rejects.toMatchObject({ code: 'invalid-storage-input' });
     expect(await storage.conversationStore.read()).toEqual(state);
+    expect(await storage.profileStore.readProfiles()).toEqual(profiles);
+    expect(await storage.profileStore.readSession('local')).toEqual(session);
     expect(await readFile(join(directory, 'store.json'), 'utf8')).toBe(committed);
     await storage.close();
+    const reopened = await openStorage({ directory, encryption });
+    expect(await reopened.conversationStore.read()).toEqual(state);
+    expect(await reopened.profileStore.readProfiles()).toEqual(profiles);
+    expect(await reopened.profileStore.readSession('local')).toEqual(session);
+    await reopened.close();
     // A well-formed, checksummed file still needs schema validation on reopen.
     const payload = JSON.stringify({
       state: { ...state, activeProfileId: 'missing' },
       protected: encryption
-        .encrypt(JSON.stringify({ profiles: [profile], sessions: [] }))
+        .encrypt(JSON.stringify({ profiles, sessions: [session] }))
         .toString('base64'),
     });
     const corrupt = JSON.stringify({
