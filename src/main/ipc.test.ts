@@ -65,6 +65,16 @@ test('IPC admits only the owned current main document and narrowly validated arg
       }),
     ).toEqual({ ok: false, code: 'invalid-input' });
     expect((await service.getState()).profiles).toEqual([]);
+    expect(
+      await invoke(channels.saveProfile, event, {
+        id: 'local',
+        name: 'Fixture',
+        kind: 'acp',
+        executable: 'fixture-agent',
+        args: new Array<string>(1),
+        env: [],
+      }),
+    ).toEqual({ ok: false, code: 'invalid-input' });
   } finally {
     await service.shutdown();
     await rm(directory, { recursive: true, force: true });

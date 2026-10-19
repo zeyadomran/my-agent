@@ -48,11 +48,9 @@ export function validateProfileDraft(value: unknown): ProfileDraft {
   );
   text(item.executable, 4096);
   requireInput(Array.isArray(item.args) && item.args.length <= 64);
-  item.args.forEach((arg: unknown) => {
-    text(arg, 8192, false);
-  });
+  for (const arg of item.args) text(arg, 8192, false);
   requireInput(Array.isArray(item.env) && item.env.length <= 128);
-  const names = item.env.map((entry: unknown) => {
+  const names = Array.from(item.env, (entry: unknown) => {
     const env = object(entry, ['name'], ['value']);
     environmentName(env.name);
     if (Object.hasOwn(env, 'value')) text(env.value, 16384, false);
