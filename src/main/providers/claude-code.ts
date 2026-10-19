@@ -2,10 +2,11 @@ import { randomUUID } from 'node:crypto';
 
 import type { ProviderAdapter, ProviderEvent, ProviderRunRequest } from '../../shared/contracts';
 import { ClaudePolicyError } from './claude-policy';
-import { claudeExchange, ClaudeRetirementFault } from './claude-process';
+import { claudeExchange, claudeInput, ClaudeRetirementFault } from './claude-process';
 import { claudeCheckpoint, newClaudeSession, resumableClaudeSession } from './claude-session';
 import { EventChannel } from './event-channel';
 import { ProviderFault } from './fault';
+import { MAX_FRAME_BYTES } from './limits';
 import { transcriptPrompt } from './transcript';
 
 export interface ClaudeCodeAdapterOptions {
@@ -48,7 +49,12 @@ export function createClaudeCodeAdapter(options: ClaudeCodeAdapterOptions = {}):
       for (let attempt = 0; attempt < 2; attempt++) {
         const state = previous ?? newClaudeSession(request.profile);
         const lastMessageId = previous === null ? null : (request.session?.lastMessageId ?? null);
-        const prompt = transcriptPrompt(request, lastMessageId);
+        const { prompt, handoff } = transcriptPrompt(
+          request,
+          lastMessageId,
+          (text) => Buffer.byteLength(claudeInput(state.sessionId, text)) <= MAX_FRAME_BYTES,
+        );
+        if (handoff !== undefined) await channel.checkpoint({ type: 'context', handoff }, signal);
         state.reusable = false;
         await channel.checkpoint(
           { type: 'session', session: claudeCheckpoint(request.profile.id, state, lastMessageId) },

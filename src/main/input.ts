@@ -1,6 +1,7 @@
 import type { ProfileDraft, SendRequest } from '../shared/contracts';
 
 export class InputError extends Error {}
+export class InputTooLargeError extends InputError {}
 
 function requireInput(condition: boolean): asserts condition {
   if (!condition) throw new InputError('Invalid input');
@@ -66,6 +67,8 @@ export function validateProfileDraft(value: unknown): ProfileDraft {
 export function validateSend(value: unknown): SendRequest {
   const item = object(value, ['requestId', 'content']);
   identifier(item.requestId);
+  if (typeof item.content === 'string' && Buffer.byteLength(item.content) > 131072)
+    throw new InputTooLargeError();
   text(item.content, 131072);
   return { requestId: item.requestId, content: item.content };
 }

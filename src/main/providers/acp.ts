@@ -234,10 +234,16 @@ export function createAcpAdapter(options: AcpAdapterOptions = {}): ProviderAdapt
         opaqueState: JSON.stringify(state),
         lastMessageId,
       });
-      const prompt = transcriptPrompt(
+      const promptParams = (text: string) => ({
+        sessionId: currentSession,
+        prompt: [{ type: 'text', text }],
+      });
+      const { prompt, handoff } = transcriptPrompt(
         request,
         previous === null ? null : (request.session?.lastMessageId ?? null),
+        (text) => rpc.fitsRequest('session/prompt', promptParams(text)),
       );
+      if (handoff !== undefined) await channel.checkpoint({ type: 'context', handoff }, signal);
       // Invalidate reuse before a prompt can mutate history. After interruption the
       // next run creates a session and carries app-owned context instead.
       await channel.checkpoint(
@@ -251,10 +257,7 @@ export function createAcpAdapter(options: AcpAdapterOptions = {}): ProviderAdapt
       const response = object(
         await rpc.request(
           'session/prompt',
-          {
-            sessionId: currentSession,
-            prompt: [{ type: 'text', text: prompt }],
-          },
+          promptParams(prompt),
           options.promptTimeoutMs ?? 120_000,
         ),
       );

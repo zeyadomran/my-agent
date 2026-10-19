@@ -18,6 +18,15 @@ interface ClaudeExchangeRequest {
   probe?: boolean;
 }
 
+export function claudeInput(sessionId: string, prompt: string): string {
+  return JSON.stringify({
+    type: 'user',
+    session_id: sessionId,
+    parent_tool_use_id: null,
+    message: { role: 'user', content: prompt },
+  });
+}
+
 /** One finite CLI turn, through the shared launcher and owned process lifecycle. */
 export async function claudeExchange(
   request: ClaudeExchangeRequest,
@@ -57,14 +66,7 @@ export async function claudeExchange(
           else reject(new ProviderFault());
         },
       });
-      process.send(
-        JSON.stringify({
-          type: 'user',
-          session_id: request.sessionId,
-          parent_tool_use_id: null,
-          message: { role: 'user', content: request.prompt },
-        }),
-      );
+      process.send(claudeInput(request.sessionId, request.prompt));
       process.endInput();
     });
   } finally {

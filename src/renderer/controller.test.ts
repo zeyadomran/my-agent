@@ -111,6 +111,15 @@ it('retains a failed send, follows authoritative streaming/stop, and keeps the t
   await controller.send();
   expect(controller.getSnapshot().composer).toBe('Keep this draft');
   expect(controller.getSnapshot().error).toMatch(/agent/i);
+  external.bridge.send = () => Promise.resolve({ ok: false, code: 'input-too-large' });
+  await controller.send();
+  expect(controller.getSnapshot().composer).toBe('Keep this draft');
+  expect(controller.getSnapshot().error).toContain('Shorten it');
+  external.bridge.send = () =>
+    Promise.resolve({
+      ok: true,
+      value: { id: 'run', profileId: 'one', assistantMessageId: 'answer' },
+    });
   const run = { id: 'run', profileId: 'one', assistantMessageId: 'answer' };
   external.acceptSend(run);
   await controller.send();

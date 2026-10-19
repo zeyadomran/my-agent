@@ -52,6 +52,13 @@ export interface DurableMessage {
   createdAt: string;
   updatedAt: string;
   runId?: string;
+  /** Disclosed whole-message handoff limit; full saved history is unchanged. */
+  contextHandoff?: ContextHandoff;
+}
+
+export interface ContextHandoff {
+  omittedMessages: number;
+  includedMessages: number;
 }
 
 export interface ActiveRun {
@@ -70,7 +77,12 @@ export interface AppState {
 }
 
 export type FailureCode =
-  'unavailable' | 'invalid-input' | 'busy' | 'storage-failed' | 'provider-failed';
+  | 'unavailable'
+  | 'invalid-input'
+  | 'input-too-large'
+  | 'busy'
+  | 'storage-failed'
+  | 'provider-failed';
 
 export type Result<T> = { ok: true; value: T } | { ok: false; code: FailureCode };
 
@@ -126,10 +138,11 @@ export interface ProviderSession {
 
 export type ProviderEvent =
   | { type: 'delta'; text: string }
+  | { type: 'context'; handoff: ContextHandoff }
   | { type: 'session'; session: ProviderSession }
   | { type: 'completed' }
   | { type: 'stopped' }
-  | { type: 'failed'; code: 'unavailable' | 'provider-failed' };
+  | { type: 'failed'; code: 'unavailable' | 'input-too-large' | 'provider-failed' };
 
 export interface ProviderAdapter {
   readonly kind: ProviderKind;

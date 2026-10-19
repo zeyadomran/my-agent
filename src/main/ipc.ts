@@ -6,6 +6,7 @@ import {
   environmentName,
   identifier,
   InputError,
+  InputTooLargeError,
   validateProfileDraft,
   validateSend,
 } from './input';
@@ -52,6 +53,7 @@ export function createIpcHandlers(
         if (args.length !== count) throw new InputError();
         return await action(...args);
       } catch (error) {
+        if (error instanceof InputTooLargeError) return { ok: false, code: 'input-too-large' };
         if (error instanceof InputError) return { ok: false, code: 'invalid-input' };
         return unavailable();
       }

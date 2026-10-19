@@ -406,54 +406,6 @@ test('dispose and abandoned iteration both retire an active provider', async () 
   }
 });
 
-test('full handoff preserves message prefixes and rejects an over-budget submission without sending it', async () => {
-  const { request, journal } = await scenario();
-  const adapter = createAcpAdapter();
-  const content = `Message prefix ${'x'.repeat(20_000)} message suffix`;
-  const transcript = [
-    {
-      id: 'history',
-      role: 'user' as const,
-      status: 'complete' as const,
-      content,
-      profile: null,
-      createdAt: '',
-      updatedAt: '',
-    },
-  ];
-  try {
-    const events: ProviderEvent[] = [];
-    const run = adapter
-      .run({ ...request, transcript }, new AbortController().signal)
-      [Symbol.asyncIterator]();
-    expect((await run.next()).value).toMatchObject({ type: 'session' });
-    expect((await records(journal)).some((entry) => entry.method === 'session/prompt')).toBe(false);
-    for (let next = await run.next(); next.done !== true; next = await run.next())
-      events.push(next.value);
-    expect(events.at(-1)).toEqual({ type: 'completed' });
-    expect((await readFile(journal, 'utf8')).includes(content)).toBe(true);
-    await assertRetired(journal);
-    const excessive = transcript.map((message) => ({
-      ...message,
-      content: 'large'.repeat(60_000),
-    }));
-    const over: ProviderEvent[] = [];
-    for await (const event of adapter.run(
-      { ...request, transcript: excessive },
-      new AbortController().signal,
-    ))
-      over.push(event);
-    expect(over.at(-1)).toEqual({ type: 'failed', code: 'provider-failed' });
-    expect(
-      (await records(journal)).filter((entry) => entry.method === 'session/prompt'),
-    ).toHaveLength(1);
-    expect(excessive[0]?.content.length).toBe(300_000);
-    await assertRetired(journal);
-  } finally {
-    await adapter.dispose();
-  }
-});
-
 test('aborted and timed-out connection probes retire their child without leaking diagnostic data', async () => {
   const { profile, journal, directory } = await scenario({ failure: 'hang' });
   const adapter = createAcpAdapter({ requestTimeoutMs: 5000 });

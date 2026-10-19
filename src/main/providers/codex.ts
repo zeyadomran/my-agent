@@ -154,10 +154,22 @@ export function createCodexAdapter(options: CodexAdapterOptions = {}): ProviderA
         opaqueState: JSON.stringify({ threadId, fingerprint: profileFingerprint(request.profile) }),
         lastMessageId,
       });
-      const prompt = transcriptPrompt(
+      const turnParams = (text: string) => ({
+        threadId,
+        input: [{ type: 'text', text, text_elements: [] }],
+        environments: [],
+        approvalPolicy: 'never',
+        approvalsReviewer: 'user',
+        sandboxPolicy: { type: 'readOnly', networkAccess: false },
+        ...(request.profile.model === undefined ? {} : { model: request.profile.model }),
+      });
+      const promptRpc = rpc;
+      const { prompt, handoff } = transcriptPrompt(
         request,
         previous === null ? null : (request.session?.lastMessageId ?? null),
+        (text) => promptRpc.fitsRequest('turn/start', turnParams(text)),
       );
+      if (handoff !== undefined) await channel.checkpoint({ type: 'context', handoff }, signal);
       await channel.checkpoint({ type: 'session', session: session(null) }, signal);
       throwIfFailed();
       let resolveTurn: (status: string) => void = () => {
@@ -184,19 +196,7 @@ export function createCodexAdapter(options: CodexAdapterOptions = {}): ProviderA
         fail(new ProviderFault());
       }, options.turnTimeoutMs ?? 120_000);
       const started = codexObject(
-        await rpc.request(
-          'turn/start',
-          {
-            threadId,
-            input: [{ type: 'text', text: prompt, text_elements: [] }],
-            environments: [],
-            approvalPolicy: 'never',
-            approvalsReviewer: 'user',
-            sandboxPolicy: { type: 'readOnly', networkAccess: false },
-            ...(request.profile.model === undefined ? {} : { model: request.profile.model }),
-          },
-          requestTimeout,
-        ),
+        await rpc.request('turn/start', turnParams(prompt), requestTimeout),
       );
       turn.bind(started.turn);
       const status = await completion;

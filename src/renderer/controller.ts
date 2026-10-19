@@ -20,6 +20,8 @@ const failures: Record<FailureCode, string> = {
   busy: 'An operation is already in progress. Wait or stop the current response.',
   'storage-failed': 'The change could not be saved. Your draft is retained.',
   'provider-failed': 'The agent could not complete the request. Check its settings and try again.',
+  'input-too-large':
+    'This request is too large for the agent input limit. Shorten it and send again. Your full conversation remains saved.',
 };
 
 function fullBridge(bridge: Partial<RendererBridge> | undefined): bridge is RendererBridge {
