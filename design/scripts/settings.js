@@ -36,17 +36,21 @@ function errorsOf(d) {
   });
   return e;
 }
-const quote = (a) => (a === '' ? '""' : /[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a);
 function launchPreview(d) {
-  const parts = [quote(d.executable || '<command>')];
-  if (d.type === 'acp') d.args.forEach((a) => parts.push(quote(a)));
-  else parts.push(d.type === 'codex' ? 'app-server' : '<managed by app>');
-  let s = parts.join(' ');
+  const lines = [
+    `Executable (JSON string): ${JSON.stringify(d.executable || '<command>')}`,
+    d.type === 'acp'
+      ? `Arguments (JSON array): ${JSON.stringify(d.args)}`
+      : 'Arguments: managed by app (mock)',
+  ];
   const envs = d.env.filter((r) => r.key.trim());
   if (envs.length)
-    s += `\n\n+ ${envs.length} environment variable${envs.length > 1 ? 's' : ''}: ${envs.map((r) => r.key + '=••••').join(', ')}`;
-  if (d.cwd.trim()) s += `\n  in ${d.cwd}`;
-  return s;
+    lines.push(
+      '',
+      `+ ${envs.length} environment variable${envs.length > 1 ? 's' : ''}: ${envs.map((r) => r.key + '=••••').join(', ')}`,
+    );
+  if (d.cwd.trim()) lines.push(`Working directory (JSON string): ${JSON.stringify(d.cwd)}`);
+  return lines.join('\n');
 }
 
 function renderSettings() {
@@ -206,7 +210,7 @@ function renderSettings() {
 
       <div class="section">
         <h4>Launch preview</h4>
-        <p class="hint">What will run, for checking. Values are masked.</p>
+        <p class="hint">Literal launch values shown as JSON. Environment values are masked.</p>
         <pre class="preview-cmd mono" id="launchPreview">${esc(launchPreview(d))}</pre>
       </div>
 
