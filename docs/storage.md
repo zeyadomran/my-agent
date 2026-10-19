@@ -1,6 +1,6 @@
 # Durable storage integration
 
-[Storage](../src/main/storage/index.ts) implements the unchanged `ConversationStore` and `ProfileStore` contracts from [shared contracts](../src/shared/contracts.ts). It is main-only and is not wired into the application shell yet.
+[Storage](../src/main/storage/index.ts) implements the unchanged `ConversationStore` and `ProfileStore` contracts from [shared contracts](../src/shared/contracts.ts). The main application service uses it for durable transcript/profile/session mutations.
 
 ## Opening and packaging
 
@@ -8,9 +8,9 @@ Main integration should acquire `app.requestSingleInstanceLock()` before opening
 
 For non-Electron consumers/tests, `openStorage({ directory, encryption })` accepts an owned directory and an `EncryptionBoundary`. Tests use real temporary files and a controlled encryption boundary, without loading Electron. The optional `now` and `commitCheckpoint` boundaries control recovery time and filesystem failure stages in tests; production omits them.
 
-There are no additional dependencies, native database modules, migrations, or rebuild steps. The existing main bundler can bundle these modules, leaving Electron and Node built-ins as runtime APIs. The packaged main must import the Electron factory when integration is implemented. Storage requires a writable local user-data directory and the pinned Electron runtime's `safeStorage` API. Packaging the current shell does not exercise these currently unreferenced modules.
+There are no additional dependencies, native database modules, migrations, or rebuild steps. The main bundler includes these modules, leaving Electron and Node built-ins as runtime APIs. Packaged main imports the Electron factory after acquiring its single-instance lock. Storage requires a writable local user-data directory and the pinned Electron runtime's `safeStorage` API.
 
-The [safeStorage adapter](../src/main/storage/safe-storage.ts) checks availability on construction and every encryption/decryption operation. It uses the synchronous API to explicitly inspect and refuse Linux's `basic_text` and unknown backends, as described in [Electron's safeStorage documentation](https://www.electronjs.org/docs/latest/api/safe-storage). Unavailable encryption, encryption errors, or decryption errors fail visibly; there is no plaintext fallback or automatic key replacement. Native Windows DPAPI qualification remains unverified until exercised under Electron with an owned profile. OS encryption is not a defense against other applications running as the same Windows user.
+The [safeStorage adapter](../src/main/storage/safe-storage.ts) checks availability on construction and every encryption/decryption operation. It uses the synchronous API to explicitly inspect and refuse Linux's `basic_text` and unknown backends, as described in [Electron's safeStorage documentation](https://www.electronjs.org/docs/latest/api/safe-storage). Unavailable encryption, encryption errors, or decryption errors fail visibly; there is no plaintext fallback or automatic key replacement. Native Windows save/reveal/retention/reopen and absence of the synthetic secret in the snapshot were exercised under Electron with owned data; see [native qualification](native-qualification.md). OS encryption is not a defense against other applications running as the same Windows user.
 
 ## Atomicity and ownership
 

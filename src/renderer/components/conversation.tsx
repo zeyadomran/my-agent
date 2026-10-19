@@ -1,4 +1,4 @@
-import type { DurableMessage } from '../../shared/contracts';
+import type { DurableMessage, ProfileIdentity } from '../../shared/contracts';
 import { SafeMarkdown } from './markdown';
 import { Bubble, BubbleContent } from './ui/bubble';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from './ui/empty';
@@ -27,6 +27,12 @@ function timeLabel(value: string) {
 }
 
 export function Conversation({ messages }: { messages: DurableMessage[] }) {
+  const priorProfiles: (ProfileIdentity | null)[] = [];
+  let lastProfile: ProfileIdentity | null = null;
+  for (const message of messages) {
+    priorProfiles.push(lastProfile);
+    if (message.profile !== null) lastProfile = message.profile;
+  }
   return (
     <section className="min-h-0 flex-1" aria-label="Conversation">
       <MessageScrollerProvider autoScroll defaultScrollPosition="end">
@@ -48,6 +54,7 @@ export function Conversation({ messages }: { messages: DurableMessage[] }) {
               )}
               {messages.map((message, index) => {
                 const previous = messages[index - 1];
+                const priorProfile = priorProfiles[index];
                 const date = dateLabel(message.createdAt);
                 return (
                   <MessageScrollerItem key={message.id} messageId={message.id}>
@@ -58,8 +65,8 @@ export function Conversation({ messages }: { messages: DurableMessage[] }) {
                         </Marker>
                       )}
                       {message.profile !== null &&
-                        previous !== undefined &&
-                        previous.profile?.id !== message.profile.id && (
+                        priorProfile != null &&
+                        priorProfile.id !== message.profile.id && (
                           <Marker variant="separator">
                             <MarkerContent>Continuing with {message.profile.name}</MarkerContent>
                           </Marker>
