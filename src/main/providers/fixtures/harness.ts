@@ -23,11 +23,37 @@ interface FixtureRecord {
   method?: string;
 }
 
-export async function records(journal: string): Promise<FixtureRecord[]> {
-  return (await readFile(journal, 'utf8'))
-    .trim()
-    .split('\n')
-    .map((line: string) => JSON.parse(line) as FixtureRecord);
+export async function records(
+  journal: string,
+  options: { live?: boolean } = {},
+): Promise<FixtureRecord[]> {
+  let text: string;
+  try {
+    text = await readFile(journal, 'utf8');
+  } catch (error) {
+    const code = error instanceof Error && 'code' in error ? error.code : undefined;
+    const safeCode =
+      typeof code === 'string' &&
+      ['ENOENT', 'EACCES', 'EPERM', 'EBUSY', 'EIO', 'EISDIR', 'EMFILE', 'ENFILE'].includes(code)
+        ? code
+        : 'unknown';
+    // Preserve a fixed classification, never native messages, paths or causes.
+    throw Object.assign(new Error(`Fixture journal read failed (${safeCode})`), { code: safeCode });
+  }
+  // A watch event can precede append completion. Only newline-terminated JSONL
+  // records have been published; never trim an unfinished record into existence.
+  const published = options.live === true ? text.slice(0, text.lastIndexOf('\n') + 1) : text;
+  if (options.live === true && published.length === 0) return [];
+  try {
+    return published
+      .trim()
+      .split('\n')
+      .map((line: string) => JSON.parse(line) as FixtureRecord);
+  } catch {
+    throw new SyntaxError(
+      `Fixture journal parse failed (${options.live === true ? 'published record' : 'final snapshot'})`,
+    );
+  }
 }
 
 export async function assertRetired(journal: string) {
