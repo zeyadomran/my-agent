@@ -1,4 +1,5 @@
 import { fork } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -9,6 +10,7 @@ const behavior = existsSync(behaviorPath) ? JSON.parse(readFileSync(behaviorPath
 const record = (entry) => appendFileSync(journal, `${JSON.stringify(entry)}\n`);
 record({
   pid: process.pid,
+  instanceId: randomUUID(),
   args: process.argv.slice(2),
   cwd: process.cwd(),
   inherited: process.env.FIXTURE_INHERITED,
@@ -77,7 +79,7 @@ input.on('line', (line) => {
         stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
       });
       child.on('message', () => {
-        record({ descendant: child.pid });
+        record({ descendant: child.pid, instanceId: randomUUID() });
         process.exit(9);
       });
       return;
@@ -175,7 +177,7 @@ input.on('line', (line) => {
           stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
         });
         child.on('message', () => {
-          record({ descendant: child.pid });
+          record({ descendant: child.pid, instanceId: randomUUID() });
           ready();
         });
       } else ready();

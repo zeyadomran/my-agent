@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { watch } from 'node:fs';
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -11,7 +12,14 @@ import type {
   ResolvedProfile,
 } from '../../shared/contracts';
 import { createAcpAdapter } from './acp';
-import { assertRetired, fixture, makeDirectory, records, scenario } from './fixtures/harness';
+import {
+  assertRetired,
+  fixture,
+  makeDirectory,
+  records,
+  scenario,
+  simulatePidReuse,
+} from './fixtures/harness';
 import { createProcessTransport } from './process-transport';
 import { createRpcTransport } from './rpc-transport';
 
@@ -48,8 +56,7 @@ test('ACP connection negotiates chat-only capabilities and retires its literal l
       inherited: 'inherited',
       overridden: 'owned',
     });
-    const first = entries[0] as { pid: number };
-    expect(() => process.kill(first.pid, 0)).toThrow();
+    await assertRetired(journal);
     expect(entries[1]).toMatchObject({
       method: 'initialize',
       params: { protocolVersion: 1, clientCapabilities: {} },
@@ -81,6 +88,7 @@ test('ACP connection negotiates chat-only capabilities and retires its literal l
     const events: ProviderEvent[] = [];
     for await (const event of adapter.run(request, new AbortController().signal))
       events.push(event);
+    await assertRetired(journal);
     expect(events.filter((event) => event.type === 'delta')).toEqual([
       { type: 'delta', text: 'Hello ' },
       { type: 'delta', text: 'world' },
@@ -121,6 +129,7 @@ test('ACP connection negotiates chat-only capabilities and retires its literal l
     const resumed: ProviderEvent[] = [];
     for await (const event of adapter.run(resumedRequest, new AbortController().signal))
       resumed.push(event);
+    await assertRetired(journal);
     expect(resumed.filter((event) => event.type === 'delta')).toEqual([
       { type: 'delta', text: 'Hello ' },
       { type: 'delta', text: 'world' },
@@ -142,6 +151,7 @@ test('ACP connection negotiates chat-only capabilities and retires its literal l
     const fallback: ProviderEvent[] = [];
     for await (const event of adapter.run(resumedRequest, new AbortController().signal))
       fallback.push(event);
+    await assertRetired(journal);
     expect(fallback.at(-1)).toEqual({ type: 'completed' });
     const fallbackPrompt =
       (await readFile(journal, 'utf8'))
@@ -155,12 +165,14 @@ test('ACP connection negotiates chat-only capabilities and retires its literal l
     const authFailure: ProviderEvent[] = [];
     for await (const event of adapter.run(resumedRequest, new AbortController().signal))
       authFailure.push(event);
+    await assertRetired(journal);
     expect(authFailure.at(-1)).toEqual({ type: 'failed', code: 'provider-failed' });
     expect((await records(journal)).at(-1)?.method).toBe('session/load');
     await writeFile(join(directory, 'behavior.json'), JSON.stringify({ loadSession: false }));
     const noLoad: ProviderEvent[] = [];
     for await (const event of adapter.run(resumedRequest, new AbortController().signal))
       noLoad.push(event);
+    await assertRetired(journal);
     expect(noLoad.at(-1)).toEqual({ type: 'completed' });
     const noLoadCheckpoint = noLoad.findLast((event) => event.type === 'session');
     expect(JSON.parse(noLoadCheckpoint?.session.opaqueState ?? '{}') as unknown).toMatchObject({
@@ -175,6 +187,7 @@ test('ACP connection negotiates chat-only capabilities and retires its literal l
         new AbortController().signal,
       ),
     ).toEqual({ ok: true, value: null });
+    await assertRetired(journal);
     expect((await records(journal)).at(-1)?.method).toBe('session/set_config_option');
     await rm(join(directory, 'behavior.json'));
 
@@ -183,6 +196,7 @@ test('ACP connection negotiates chat-only capabilities and retires its literal l
     const permissionEvents: ProviderEvent[] = [];
     for await (const event of adapter.run(request, new AbortController().signal))
       permissionEvents.push(event);
+    await assertRetired(journal);
     expect(permissionEvents.at(-1)).toEqual({ type: 'completed' });
     const permissionLog = await readFile(journal, 'utf8');
     expect(permissionLog.includes('"outcome":{"outcome":"cancelled"}')).toBe(true);
@@ -212,6 +226,7 @@ test('ACP connection negotiates chat-only capabilities and retires its literal l
         ok: true,
         value: null,
       });
+      await assertRetired(journal);
       const runtime = join(bin, 'runtime');
       await mkdir(runtime);
       await copyFile(join(bin, 'node.exe'), join(runtime, 'node.exe'));
@@ -233,12 +248,14 @@ test('ACP connection negotiates chat-only capabilities and retires its literal l
           new AbortController().signal,
         ),
       ).toEqual({ ok: true, value: null });
+      await assertRetired(journal);
       expect(
         await adapter.testConnection(
           { ...profile, executable: 'fixture bin/entry.mjs', args: profile.args.slice(1) },
           new AbortController().signal,
         ),
       ).toEqual({ ok: true, value: null });
+      await assertRetired(journal);
       await writeFile(join(bin, 'arbitrary.cmd'), '@echo unsafe\r\n');
       expect(
         await adapter.testConnection(
@@ -415,6 +432,7 @@ test('full handoff preserves message prefixes and rejects an over-budget submiss
       events.push(next.value);
     expect(events.at(-1)).toEqual({ type: 'completed' });
     expect((await readFile(journal, 'utf8')).includes(content)).toBe(true);
+    await assertRetired(journal);
     const excessive = transcript.map((message) => ({
       ...message,
       content: 'large'.repeat(60_000),
@@ -441,6 +459,7 @@ test('aborted and timed-out connection probes retire their child without leaking
   const adapter = createAcpAdapter({ requestTimeoutMs: 5000 });
   const controller = new AbortController();
   let watcher: ReturnType<typeof watch> | undefined;
+  let restoreOsProbe: (() => void) | undefined;
   const initialized = new Promise<void>((resolveReady, reject) => {
     watcher = watch(directory, () => {
       void records(journal)
@@ -464,12 +483,26 @@ test('aborted and timed-out connection probes retire their child without leaking
     controller.abort();
     expect((await probing).ok).toBe(false);
     await assertRetired(journal);
+    const retiredProbe = (await records(journal)).find((entry) => entry.pid !== undefined);
+    if (retiredProbe?.pid === undefined) throw new Error('Missing fixture process identity');
     expect(await adapter.testConnection(profile, new AbortController().signal)).toEqual({
       ok: false,
       code: 'provider-failed',
     });
     await assertRetired(journal);
+    const recycledPid = retiredProbe.pid;
+    // Simulate OS PID reuse after both real probe exits were confirmed.
+    restoreOsProbe = simulatePidReuse(recycledPid);
+    await assertRetired(journal);
+    // A new instance with the recycled PID must remain detectable as live.
+    await writeFile(
+      journal,
+      `${JSON.stringify({ pid: recycledPid, instanceId: randomUUID() })}\n`,
+      { flag: 'a' },
+    );
+    await expect(assertRetired(journal)).rejects.toThrow('still active');
   } finally {
+    restoreOsProbe?.();
     watcher?.close();
     controller.abort();
     await adapter.dispose();
