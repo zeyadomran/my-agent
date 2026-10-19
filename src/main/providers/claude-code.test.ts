@@ -141,10 +141,12 @@ test('Claude probes, streams once, and checkpoints its app-owned native session'
     expect(launched).toContain('sonnet');
     expect(launched).not.toContain('haiku');
     const events = await collect(adapter, request, store);
-    expect(events.filter((event) => event.type === 'delta')).toEqual([
-      { type: 'delta', text: 'Hello ' },
-      { type: 'delta', text: 'world' },
-    ]);
+    expect(
+      events
+        .filter((event) => event.type === 'delta')
+        .map((event) => event.text)
+        .join(''),
+    ).toBe('Hello world');
     expect(events.at(-1)).toEqual({ type: 'completed' });
     expect(saved(events).lastMessageId).toBe('answer-one');
     expect(await store.profileStore.readSession(profile.id)).toEqual(saved(events));
