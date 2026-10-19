@@ -77,15 +77,17 @@ export function Composer({
         </div>
       </div>
       <p role="status" className="text-center text-xs text-muted-foreground">
-        {!enabled
-          ? 'Service unavailable'
-          : run != null
-            ? state.busy === 'stop'
-              ? 'Stopping…'
-              : 'Agent responding…'
-            : state.busy === 'send'
-              ? 'Sending…'
-              : 'Ready · one continuous transcript'}
+        {state.availability === 'ready' && state.app?.activeProfileId == null
+          ? 'Configure a profile in settings to begin'
+          : !enabled
+            ? 'Service unavailable'
+            : run != null
+              ? state.busy === 'stop'
+                ? 'Stopping…'
+                : 'Agent responding…'
+              : state.busy === 'send'
+                ? 'Sending…'
+                : 'Ready · one continuous transcript'}
       </p>
     </form>
   );
