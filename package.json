@@ -21,7 +21,7 @@
     "check:static": "npm run typecheck && npm run lint && npm run format:check",
     "check": "npm run check:static && npm test",
     "test": "npm run test:app && npm run test:git-hooks",
-    "test:app": "vitest run --passWithNoTests",
+    "test:app": "vitest run",
     "test:git-hooks": "node --test scripts/git-hooks/verify.mjs",
     "hooks:install": "node scripts/git-hooks/install.mjs",
     "prepare": "node scripts/git-hooks/install.mjs"

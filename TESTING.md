@@ -12,11 +12,12 @@ For each behavior change, add one behavioral assertion, observe it fail because 
 
 ## Current ownership
 
-| Flow                      | Canonical owner                | Scope                                                                                                                                                                           |
-| ------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Installed Git-hook checks | `scripts/git-hooks/verify.mjs` | Staged-byte limits, formatting/lint, final-index recheck, preserved hooks, repeated installation, linked worktrees, and generated-file exceptions in temporary Git repositories |
+| Flow                      | Canonical owner                    | Scope                                                                                                                                                                             |
+| ------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Installed Git-hook checks | `scripts/git-hooks/verify.mjs`     | Staged-byte limits, formatting/lint, final-index recheck, preserved hooks, repeated installation, linked worktrees, and generated-file exceptions in temporary Git repositories   |
+| Durable storage           | `src/main/storage/storage.test.ts` | Canonical profile/transcript/session restart flow; material interruption, corruption, invalid-state, persistence-failure, and protected-value failures using real temporary files |
 
-`npm test` runs the application runner and these hook flows. The pinned Vitest runner uses the Node environment and discovers `src/**/*.test.ts`; `npm run test:app -- path/to/flow.test.ts` focuses a flow. There are no implemented application-service flows yet, so `test:app` temporarily permits an empty suite. Remove `--passWithNoTests` from that script when the first application test lands. Add storage, provider, renderer-controller, and assembled app coverage with the corresponding [implementation issues](docs/agents/issue-tracker.md), each at the smallest useful public seam. Do not repeat service behavior in unit, integration, and GUI suites.
+`npm test` runs the application runner and these hook flows. The pinned Vitest runner uses the Node environment and discovers `src/**/*.test.ts`; `npm run test:app -- path/to/flow.test.ts` focuses a flow. The application suite now requires tests and owns the durable storage flow. Add provider, renderer-controller, and assembled app coverage with the corresponding [implementation issues](docs/agents/issue-tracker.md), each at the smallest useful public seam. Do not repeat service behavior in unit, integration, and GUI suites. See [storage integration](docs/storage.md) for its commit/recovery contract and native qualification limits.
 
 ## Required commands
 
