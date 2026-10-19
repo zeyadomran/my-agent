@@ -2,6 +2,8 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
+import { controlTurn } from './turn-control.mjs';
+
 const args = process.argv.slice(2);
 const journal = process.env.CLAUDE_FIXTURE_JOURNAL;
 const behaviorPath = join(process.cwd(), 'behavior.json');
@@ -86,6 +88,28 @@ input.on('line', (line) => {
   stream({ type: 'message_start', message: { id: 'owned-message', role: 'assistant' } });
   stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
   stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello ' } });
+  if (
+    controlTurn(
+      behavior,
+      (action) => {
+        if (action === 'progress')
+          stream({
+            type: 'content_block_delta',
+            index: 1,
+            delta: { type: 'thinking_delta', thinking: 'Reasoning progress' },
+          });
+      },
+      (id) => emit({ type: 'rate_limit_event', fixtureAck: id }),
+      true,
+    )
+  ) {
+    stream({
+      type: 'content_block_start',
+      index: 1,
+      content_block: { type: 'thinking', thinking: '' },
+    });
+    return;
+  }
   if (behavior.lateStale) {
     emit({
       type: 'result',

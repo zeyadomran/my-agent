@@ -3,6 +3,7 @@ import { claudeProfile } from './claude-policy';
 import { ClaudeWire } from './claude-wire';
 import { ProviderFault } from './fault';
 import { createProcessTransport, type ProcessTransport } from './process-transport';
+import { TurnDeadline } from './turn-deadline';
 
 /** A cancelled turn must still report failure when owned retirement is unconfirmed. */
 export class ClaudeRetirementFault extends ProviderFault {}
@@ -14,8 +15,18 @@ interface ClaudeExchangeRequest {
   prompt: string;
   signal: AbortSignal;
   timeoutMs: number;
+  absoluteTimeoutMs?: number;
   onDelta?: (text: string) => void;
   probe?: boolean;
+}
+
+export function claudeInput(sessionId: string, prompt: string): string {
+  return JSON.stringify({
+    type: 'user',
+    session_id: sessionId,
+    parent_tool_use_id: null,
+    message: { role: 'user', content: prompt },
+  });
 }
 
 /** One finite CLI turn, through the shared launcher and owned process lifecycle. */
@@ -28,21 +39,27 @@ export async function claudeExchange(
   if (request.probe === true) profile.args.push('--no-session-persistence');
   let process: ProcessTransport | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let deadline: TurnDeadline | undefined;
   let abort = () => {
     /* Assigned synchronously before process events can arrive. */
   };
   try {
     return await new Promise<'success' | 'missing-session'>((resolve, reject) => {
-      const wire = new ClaudeWire(request.sessionId, (text) => {
-        if (!signal.aborted) request.onDelta?.(text);
-      });
+      const wire = new ClaudeWire(
+        request.sessionId,
+        (text) => {
+          if (!signal.aborted) request.onDelta?.(text);
+        },
+        () => deadline?.activity(),
+      );
       abort = () => {
         reject(new ProviderFault());
       };
       signal.addEventListener('abort', abort, { once: true });
-      timer = setTimeout(() => {
-        reject(new ProviderFault());
-      }, request.timeoutMs);
+      if (request.probe === true)
+        timer = setTimeout(() => {
+          reject(new ProviderFault());
+        }, request.timeoutMs);
       process = createProcessTransport(profile, {
         onLine(line) {
           wire.accept(line);
@@ -57,18 +74,24 @@ export async function claudeExchange(
           else reject(new ProviderFault());
         },
       });
-      process.send(
-        JSON.stringify({
-          type: 'user',
-          session_id: request.sessionId,
-          parent_tool_use_id: null,
-          message: { role: 'user', content: request.prompt },
-        }),
-      );
+      if (request.probe !== true)
+        void process.ready
+          .then(() => {
+            deadline = new TurnDeadline(
+              () => {
+                reject(new ProviderFault());
+              },
+              request.timeoutMs,
+              request.absoluteTimeoutMs,
+            );
+          })
+          .catch(reject);
+      process.send(claudeInput(request.sessionId, request.prompt));
       process.endInput();
     });
   } finally {
     clearTimeout(timer);
+    deadline?.close();
     signal.removeEventListener('abort', abort);
     await process?.close().catch(() => {
       throw new ClaudeRetirementFault();

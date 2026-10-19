@@ -50,6 +50,12 @@ test('IPC admits only the owned current main document and narrowly validated arg
     currentUrl = 'https://untrusted.invalid/';
     await expect(invoke(channels.getState, event)).rejects.toThrow('IPC sender refused');
     currentUrl = documentUrl;
+    expect(
+      await invoke(channels.send, event, { requestId: 'large', content: 'x'.repeat(131_073) }),
+    ).toEqual({
+      ok: false,
+      code: 'input-too-large',
+    });
     expect(await invoke(channels.revealEnvironmentValue, event, 'local', 'VALUE', 'extra')).toEqual(
       { ok: false, code: 'invalid-input' },
     );

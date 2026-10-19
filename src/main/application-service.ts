@@ -19,6 +19,7 @@ import {
   environmentName,
   identifier,
   InputError,
+  InputTooLargeError,
   validateProfileDraft,
   validateSend,
 } from './input';
@@ -94,11 +95,13 @@ export class ApplicationService {
         return { ok: true, value: await action() };
       } catch (error) {
         const code =
-          error instanceof InputError
-            ? 'invalid-input'
-            : error instanceof ServiceFailure
-              ? error.code
-              : 'storage-failed';
+          error instanceof InputTooLargeError
+            ? 'input-too-large'
+            : error instanceof InputError
+              ? 'invalid-input'
+              : error instanceof ServiceFailure
+                ? error.code
+                : 'storage-failed';
         if (code === 'storage-failed') {
           this.storageFailed();
         }
@@ -309,6 +312,25 @@ export class ApplicationService {
       try {
         const sessions = await this.sessions();
         const next = { ...this.state, revision: this.state.revision + 1 };
+        if (event.type === 'context') {
+          const { omittedMessages, includedMessages } = event.handoff;
+          if (
+            !Number.isSafeInteger(omittedMessages) ||
+            omittedMessages <= 0 ||
+            !Number.isSafeInteger(includedMessages) ||
+            includedMessages < 0 ||
+            omittedMessages + includedMessages > request.transcript.length ||
+            Object.keys(event.handoff).length !== 2
+          )
+            throw new ServiceFailure('provider-failed');
+          next.messages = this.state.messages.map((message) =>
+            message.id === request.assistantMessageId
+              ? { ...message, contextHandoff: { omittedMessages, includedMessages } }
+              : message,
+          );
+          await this.commit({ state: next });
+          return;
+        }
         if (event.type === 'session') {
           if (
             event.session.profileId !== request.profile.id ||

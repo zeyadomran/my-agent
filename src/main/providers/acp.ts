@@ -9,10 +9,13 @@ import { EventChannel } from './event-channel';
 import { object, ProviderFault, RpcResponseFault } from './fault';
 import { createRpcTransport, type RpcTransport } from './rpc-transport';
 import { profileFingerprint, transcriptPrompt } from './transcript';
+import { TURN_ABSOLUTE_MS, TurnDeadline } from './turn-deadline';
 
 export interface AcpAdapterOptions {
   requestTimeoutMs?: number;
+  /** Validated text/thought inactivity, not an absolute turn duration. */
   promptTimeoutMs?: number;
+  absoluteTimeoutMs?: number;
 }
 
 interface NativeSession {
@@ -161,6 +164,7 @@ export function createAcpAdapter(options: AcpAdapterOptions = {}): ProviderAdapt
     let connection: ReturnType<typeof connect> | undefined;
     let currentSession: string | undefined;
     let streaming = false;
+    let deadline: TurnDeadline | undefined;
     let terminal: ProviderEvent;
     const cancel = () => {
       if (currentSession !== undefined) {
@@ -178,11 +182,17 @@ export function createAcpAdapter(options: AcpAdapterOptions = {}): ProviderAdapt
         const updateParams = object(params);
         if (updateParams.sessionId !== currentSession) throw new ProviderFault();
         const update = object(updateParams.update);
-        if (update.sessionUpdate !== 'agent_message_chunk') return;
+        if (
+          update.sessionUpdate !== 'agent_message_chunk' &&
+          update.sessionUpdate !== 'agent_thought_chunk'
+        )
+          return;
         const content = object(update.content);
-        if (content.type === 'text' && typeof content.text === 'string')
-          channel.push({ type: 'delta', text: content.text });
-        else if (content.type === 'text') throw new ProviderFault();
+        if (content.type === 'text' && typeof content.text === 'string') {
+          if (content.text.length > 0) deadline?.activity();
+          if (update.sessionUpdate === 'agent_message_chunk')
+            channel.push({ type: 'delta', text: content.text });
+        } else if (content.type === 'text') throw new ProviderFault();
       });
       const rpc = connection.rpc;
       const capabilities = await initialize(rpc);
@@ -234,10 +244,16 @@ export function createAcpAdapter(options: AcpAdapterOptions = {}): ProviderAdapt
         opaqueState: JSON.stringify(state),
         lastMessageId,
       });
-      const prompt = transcriptPrompt(
+      const promptParams = (text: string) => ({
+        sessionId: currentSession,
+        prompt: [{ type: 'text', text }],
+      });
+      const { prompt, handoff } = transcriptPrompt(
         request,
         previous === null ? null : (request.session?.lastMessageId ?? null),
+        (text) => rpc.fitsRequest('session/prompt', promptParams(text)),
       );
+      if (handoff !== undefined) await channel.checkpoint({ type: 'context', handoff }, signal);
       // Invalidate reuse before a prompt can mutate history. After interruption the
       // next run creates a session and carries app-owned context instead.
       await channel.checkpoint(
@@ -248,17 +264,24 @@ export function createAcpAdapter(options: AcpAdapterOptions = {}): ProviderAdapt
         signal,
       );
       streaming = true;
+      deadline = new TurnDeadline(
+        () => {
+          void rpc.close().catch(() => {
+            /* The owner reports retirement failure. */
+          });
+        },
+        options.promptTimeoutMs,
+        options.absoluteTimeoutMs,
+      );
       const response = object(
         await rpc.request(
           'session/prompt',
-          {
-            sessionId: currentSession,
-            prompt: [{ type: 'text', text: prompt }],
-          },
-          options.promptTimeoutMs ?? 120_000,
+          promptParams(prompt),
+          options.absoluteTimeoutMs ?? TURN_ABSOLUTE_MS,
         ),
       );
       streaming = false;
+      deadline.close();
       const reason = response.stopReason;
       if (
         !['end_turn', 'max_tokens', 'max_turn_requests', 'refusal', 'cancelled'].includes(
@@ -281,6 +304,7 @@ export function createAcpAdapter(options: AcpAdapterOptions = {}): ProviderAdapt
         ? { type: 'stopped' }
         : { type: 'failed', code: error instanceof ProviderFault ? error.code : 'provider-failed' };
     } finally {
+      deadline?.close();
       signal.removeEventListener('abort', cancel);
       try {
         await connection?.close();

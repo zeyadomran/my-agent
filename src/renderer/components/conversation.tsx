@@ -73,6 +73,14 @@ export function Conversation({ messages }: { messages: DurableMessage[] }) {
                         )}
                       <Message align={message.role === 'user' ? 'end' : 'start'}>
                         <MessageContent>
+                          {message.contextHandoff !== undefined && (
+                            <p className="text-muted-foreground text-sm" role="note">
+                              Context handoff: {message.contextHandoff.includedMessages} recent
+                              whole messages included; {message.contextHandoff.omittedMessages}{' '}
+                              earlier messages omitted from this handoff. Full conversation history
+                              remains saved.
+                            </p>
+                          )}
                           {message.role !== 'user' && (
                             <MessageHeader>
                               {message.role === 'system'

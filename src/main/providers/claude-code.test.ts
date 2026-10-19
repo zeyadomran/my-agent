@@ -16,6 +16,7 @@ import type {
 import { openStorage, type Storage } from '../storage';
 import { createClaudeCodeAdapter } from './claude-code';
 import { assertRetired, makeDirectory } from './fixtures/harness';
+import { verifyInactivity } from './fixtures/turn-clock';
 
 interface Entry {
   args?: string[];
@@ -114,6 +115,10 @@ function saved(events: ProviderEvent[]): ProviderSession {
 
 test('Claude probes, streams once, and checkpoints its app-owned native session', async () => {
   const { directory, journal, profile, request } = await scenario();
+  request.transcript = [
+    message('oversized-old', 'user', '"\\'.repeat(70_000)),
+    ...request.transcript,
+  ];
   let adapter = createClaudeCodeAdapter();
   const storageOptions = {
     directory: join(directory, 'store'),
@@ -202,6 +207,7 @@ test('Claude probes, streams once, and checkpoints its app-owned native session'
     expect(continuation?.input?.message.content).toContain('Follow-up');
     expect(continuation?.input?.message.content).not.toContain('Earlier question');
     expect((await store.conversationStore.read()).messages.map((message) => message.id)).toEqual([
+      'oversized-old',
       'old-user',
       'user-one',
       'answer-one',
@@ -225,6 +231,10 @@ test('Claude probes, streams once, and checkpoints its app-owned native session'
       store,
     );
     expect(recovered.at(-1)).toEqual({ type: 'completed' });
+    expect(recovered).toContainEqual({
+      type: 'context',
+      handoff: { omittedMessages: 1, includedMessages: 6 },
+    });
     expect(
       recovered
         .filter((event) => event.type === 'delta')
@@ -367,7 +377,7 @@ test('Claude replaces unsafe native metadata and never retries authentication or
   }
 }, 30_000);
 
-test('Claude refuses unavailable executables and oversized context without dropping history', async () => {
+test('Claude bounds oversized history and rejects oversized current input without truncation', async () => {
   const { journal, profile, request } = await scenario();
   const adapter = createClaudeCodeAdapter();
   try {
@@ -377,14 +387,35 @@ test('Claude refuses unavailable executables and oversized context without dropp
         new AbortController().signal,
       ),
     ).toEqual({ ok: false, code: 'unavailable' });
-    const transcript = [message('oversized', 'user', 'x'.repeat(256 * 1024))];
+    const transcript = [
+      message('oversized', 'user', '"\\'.repeat(70_000)),
+      message('recent', 'assistant', 'Recent complete message'),
+    ];
     const events = await collect(adapter, { ...request, transcript });
-    expect(events).toEqual([{ type: 'failed', code: 'provider-failed' }]);
-    expect(transcript[0]?.content.length).toBe(256 * 1024);
-    await expect(readFile(journal, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(events.at(-1)).toEqual({ type: 'completed' });
+    expect(events).toContainEqual({
+      type: 'context',
+      handoff: { omittedMessages: 1, includedMessages: 1 },
+    });
+    const input = (await entries(journal)).findLast((entry) => entry.input !== undefined)?.input;
+    expect(input?.message.content).toContain('1 earlier message(s) omitted');
+    expect(input?.message.content).toContain('Recent complete message');
+    expect(input?.message.content).toContain(request.prompt);
+    expect(transcript[0]?.content.length).toBe(140_000);
+    await assertRetired(journal);
+    expect(await collect(adapter, { ...request, prompt: '\\'.repeat(131_072) })).toEqual([
+      { type: 'failed', code: 'input-too-large' },
+    ]);
+    await assertRetired(journal);
   } finally {
     await adapter.dispose();
   }
+});
+
+test('Claude permits active reasoning beyond two minutes but retires inactive turns', async () => {
+  const { request, journal } = await scenario({ controlledTurn: true });
+  await verifyInactivity(createClaudeCodeAdapter(), request);
+  await assertRetired(journal);
 });
 
 test('Claude reports retirement failure during Stop instead of a successful stopped outcome', async () => {

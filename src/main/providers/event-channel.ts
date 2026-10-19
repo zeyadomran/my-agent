@@ -29,7 +29,10 @@ export class EventChannel {
   }
 
   /** Resume only when the consumer requests its next event, after persisting this one. */
-  async checkpoint(event: Extract<ProviderEvent, { type: 'session' }>, signal: AbortSignal) {
+  async checkpoint(
+    event: Extract<ProviderEvent, { type: 'session' | 'context' }>,
+    signal: AbortSignal,
+  ) {
     if (signal.aborted) throw new ProviderFault();
     let abort = () => {
       /* Assigned synchronously by the promise executor. */

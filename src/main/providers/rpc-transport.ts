@@ -1,5 +1,6 @@
 import type { ResolvedProfile } from '../../shared/contracts';
 import { object, ProviderFault, RpcResponseFault } from './fault';
+import { MAX_FRAME_BYTES } from './limits';
 import { createProcessTransport } from './process-transport';
 
 export interface RpcTransportOptions {
@@ -13,6 +14,8 @@ export interface RpcTransportOptions {
 }
 
 export interface RpcTransport {
+  /** Measures exactly the next request, without allocating its ID or submitting it. */
+  fitsRequest(method: string, params: unknown): boolean;
   request(method: string, params: unknown, timeoutMs?: number): Promise<unknown>;
   notify(method: string, params: unknown): void;
   close(): Promise<void>;
@@ -92,6 +95,12 @@ export function createRpcTransport(
     },
   });
   return {
+    fitsRequest(method, params) {
+      return (
+        Buffer.byteLength(JSON.stringify({ ...version, id: nextId + 1, method, params })) <=
+        MAX_FRAME_BYTES
+      );
+    },
     async request(method, params, timeoutMs = 10_000) {
       if (failure !== undefined) throw failure;
       if (pending.size >= 16) throw new ProviderFault();

@@ -83,7 +83,7 @@ function message(value: unknown): void {
   const item = record(
     value,
     ['id', 'role', 'content', 'status', 'profile', 'createdAt', 'updatedAt'],
-    ['runId'],
+    ['runId', 'contextHandoff'],
   );
   text(item.id, true);
   text(item.content);
@@ -96,6 +96,16 @@ function message(value: unknown): void {
   timestamp(item.updatedAt);
   requireValue(item.updatedAt >= item.createdAt);
   if (item.runId !== undefined) text(item.runId, true);
+  if (Object.hasOwn(item, 'contextHandoff')) {
+    requireValue(item.role === 'assistant');
+    const handoff = record(item.contextHandoff, ['omittedMessages', 'includedMessages']);
+    requireValue(
+      Number.isSafeInteger(handoff.omittedMessages) && Number(handoff.omittedMessages) > 0,
+    );
+    requireValue(
+      Number.isSafeInteger(handoff.includedMessages) && Number(handoff.includedMessages) >= 0,
+    );
+  }
 }
 
 export function summaries(profiles: readonly AgentProfile[]): AppState['profiles'] {

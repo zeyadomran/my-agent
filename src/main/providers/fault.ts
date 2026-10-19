@@ -1,6 +1,8 @@
 /** Never attach provider output, launch configuration, or native errors to this error. */
 export class ProviderFault extends Error {
-  constructor(readonly code: 'unavailable' | 'provider-failed' = 'provider-failed') {
+  constructor(
+    readonly code: 'unavailable' | 'input-too-large' | 'provider-failed' = 'provider-failed',
+  ) {
     super(code);
   }
 }

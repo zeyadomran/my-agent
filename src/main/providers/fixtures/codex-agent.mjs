@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 
+import { controlTurn } from './turn-control.mjs';
+
 const behavior = JSON.parse(readFileSync('behavior.json', 'utf8'));
 const journal = process.env.CODEX_FIXTURE_JOURNAL;
 if (!journal) throw new Error('Missing owned fixture journal');
@@ -198,6 +200,36 @@ createInterface({ input: process.stdin }).on('line', (line) => {
             text: '',
           },
         });
+        if (
+          controlTurn(
+            behavior,
+            (action) => {
+              if (action === 'progress')
+                notify('item/reasoning/textDelta', {
+                  threadId: params.threadId,
+                  turnId,
+                  itemId: 'reasoning-item',
+                  contentIndex: 0,
+                  delta: 'Reasoning progress',
+                });
+              if (action === 'finish') finish('completed');
+            },
+            (id) => notify('fixture/ack', { fixtureAck: id }),
+          )
+        ) {
+          notify('item/started', {
+            threadId: params.threadId,
+            turnId,
+            item: { type: 'reasoning', id: 'reasoning-item' },
+          });
+          notify('item/agentMessage/delta', {
+            threadId: params.threadId,
+            turnId,
+            itemId,
+            delta: 'ready',
+          });
+          break;
+        }
         if (behavior.stall)
           notify('item/agentMessage/delta', {
             threadId: params.threadId,

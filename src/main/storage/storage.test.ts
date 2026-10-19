@@ -285,6 +285,34 @@ test('invalid state cannot erase history, publish protected fields, or invent se
       return result;
     };
     const next = { ...state, revision: state.revision + 1 };
+    for (const contextHandoff of [
+      { omittedMessages: 0, includedMessages: 1 },
+      { omittedMessages: -1, includedMessages: 1 },
+      { omittedMessages: 1.5, includedMessages: 1 },
+      { omittedMessages: 1, includedMessages: -1 },
+      { omittedMessages: 1, includedMessages: Number.MAX_SAFE_INTEGER + 1 },
+      { omittedMessages: 1, includedMessages: 0, extra: true },
+    ]) {
+      await expect(
+        storage.conversationStore.write({
+          ...next,
+          messages: [
+            ...messages,
+            {
+              ...messages[0],
+              content: 'Invalid notice',
+              status: 'complete',
+              profile: null,
+              createdAt: '2026-01-01T10:00:00.000Z',
+              updatedAt: '2026-01-01T10:00:00.000Z',
+              id: 'invalid-notice',
+              role: 'assistant',
+              contextHandoff,
+            },
+          ],
+        }),
+      ).rejects.toMatchObject({ code: 'invalid-storage-input' });
+    }
     // Each snapshot collection once, through its public write boundary.
     const sparseWrites = [
       () => storage.profileStore.writeProfiles([{ ...profile, args: sparse(profile.args) }]),

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { watch } from 'node:fs';
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { expect, test } from 'vitest';
 
@@ -20,6 +20,7 @@ import {
   scenario,
   simulatePidReuse,
 } from './fixtures/harness';
+import { verifyInactivity } from './fixtures/turn-clock';
 import { createProcessTransport } from './process-transport';
 import { createRpcTransport } from './rpc-transport';
 
@@ -215,6 +216,10 @@ test('ACP connection negotiates chat-only capabilities and retires its literal l
         '@ECHO off\r\nGOTO start\r\n:find_dp0\r\nSET dp0=%~dp0\r\nEXIT /b\r\n:start\r\nSETLOCAL\r\nCALL :find_dp0\r\nIF EXIST "%dp0%\\node.exe" (\r\n  SET "_prog=%dp0%\\node.exe"\r\n) ELSE (\r\n  SET "_prog=node"\r\n  SET PATHEXT=%PATHEXT:;.JS;=;%\r\n)\r\nendLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%" "%dp0%\\entry.mjs" %*\r\n',
       );
       await copyFile(fixture, join(bin, 'entry.mjs'));
+      await copyFile(
+        resolve('src/main/providers/fixtures/turn-control.mjs'),
+        join(bin, 'turn-control.mjs'),
+      );
       await writeFile(join(bin, 'fixture-agent'), '#!/bin/sh\nexit 99\n');
       const shimProfile = {
         ...profile,
@@ -385,6 +390,18 @@ test.each([false, true])(
   },
 );
 
+test('ACP permits active reasoning beyond two minutes but retires inactive turns', async () => {
+  const { request, journal } = await scenario({ controlledTurn: true });
+  await verifyInactivity(createAcpAdapter(), request);
+  await assertRetired(journal);
+});
+
+test('active ACP progress cannot extend the separate absolute safety cap', async () => {
+  const { request, journal } = await scenario({ controlledTurn: true });
+  await verifyInactivity(createAcpAdapter({ absoluteTimeoutMs: 240_000 }), request, 'absolute');
+  await assertRetired(journal);
+});
+
 test('dispose and abandoned iteration both retire an active provider', async () => {
   const { request, journal } = await scenario({ holdPrompt: true, ignoreCancel: true });
   const adapter = createAcpAdapter();
@@ -400,54 +417,6 @@ test('dispose and abandoned iteration both retire an active provider', async () 
     for (let next = await iterator.next(); next.done !== true; next = await iterator.next())
       remainder.push(next.value);
     expect(remainder.at(-1)).toEqual({ type: 'failed', code: 'provider-failed' });
-    await assertRetired(journal);
-  } finally {
-    await adapter.dispose();
-  }
-});
-
-test('full handoff preserves message prefixes and rejects an over-budget submission without sending it', async () => {
-  const { request, journal } = await scenario();
-  const adapter = createAcpAdapter();
-  const content = `Message prefix ${'x'.repeat(20_000)} message suffix`;
-  const transcript = [
-    {
-      id: 'history',
-      role: 'user' as const,
-      status: 'complete' as const,
-      content,
-      profile: null,
-      createdAt: '',
-      updatedAt: '',
-    },
-  ];
-  try {
-    const events: ProviderEvent[] = [];
-    const run = adapter
-      .run({ ...request, transcript }, new AbortController().signal)
-      [Symbol.asyncIterator]();
-    expect((await run.next()).value).toMatchObject({ type: 'session' });
-    expect((await records(journal)).some((entry) => entry.method === 'session/prompt')).toBe(false);
-    for (let next = await run.next(); next.done !== true; next = await run.next())
-      events.push(next.value);
-    expect(events.at(-1)).toEqual({ type: 'completed' });
-    expect((await readFile(journal, 'utf8')).includes(content)).toBe(true);
-    await assertRetired(journal);
-    const excessive = transcript.map((message) => ({
-      ...message,
-      content: 'large'.repeat(60_000),
-    }));
-    const over: ProviderEvent[] = [];
-    for await (const event of adapter.run(
-      { ...request, transcript: excessive },
-      new AbortController().signal,
-    ))
-      over.push(event);
-    expect(over.at(-1)).toEqual({ type: 'failed', code: 'provider-failed' });
-    expect(
-      (await records(journal)).filter((entry) => entry.method === 'session/prompt'),
-    ).toHaveLength(1);
-    expect(excessive[0]?.content.length).toBe(300_000);
     await assertRetired(journal);
   } finally {
     await adapter.dispose();

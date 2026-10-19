@@ -4,6 +4,8 @@ import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
+import { controlTurn } from './turn-control.mjs';
+
 const journal = process.env.FIXTURE_JOURNAL;
 const behaviorPath = join(process.cwd(), 'behavior.json');
 const behavior = existsSync(behaviorPath) ? JSON.parse(readFileSync(behaviorPath, 'utf8')) : {};
@@ -159,6 +161,38 @@ input.on('line', (line) => {
   }
   if (message.method === 'session/prompt') {
     pendingPrompt = message.id;
+    if (
+      controlTurn(
+        behavior,
+        (action) => {
+          if (action === 'progress')
+            send({
+              method: 'session/update',
+              params: {
+                sessionId: 'fixture-session',
+                update: {
+                  sessionUpdate: 'agent_thought_chunk',
+                  content: { type: 'text', text: 'Reasoning progress' },
+                },
+              },
+            });
+          if (action === 'finish') complete();
+        },
+        (id) => send({ method: 'fixture/ack', params: { fixtureAck: id } }),
+      )
+    ) {
+      send({
+        method: 'session/update',
+        params: {
+          sessionId: 'fixture-session',
+          update: {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: 'ready' },
+          },
+        },
+      });
+      return;
+    }
     if (behavior.holdPrompt === true) {
       setInterval(() => {}, 60_000); // Deliberately resist EOF; owner must retire us.
       const ready = () =>

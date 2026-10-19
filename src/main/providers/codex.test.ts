@@ -11,6 +11,7 @@ import type {
   ResolvedProfile,
 } from '../../shared/contracts';
 import { createCodexAdapter } from './codex';
+import { verifyInactivity } from './fixtures/turn-clock';
 
 const owned: string[] = [];
 const confirmedRetired = new Set<string>();
@@ -166,6 +167,7 @@ test('Codex canonical chat connects and retires the owned native process', async
           assistantMessageId: 'assistant-3',
           session: resumedSession.session,
           transcript: [
+            message('oversized-old', 'user', '"\\'.repeat(70_000)),
             message('user-1', 'user', fixture.request.prompt),
             message('assistant-1', 'assistant', 'Fixture reply.'),
             message('cross-user', 'user', 'Cross-provider question'),
@@ -178,6 +180,10 @@ test('Codex canonical chat connects and retires the owned native process', async
       ),
     );
     expect(recovery.at(-1)).toEqual({ type: 'completed' });
+    expect(recovery).toContainEqual({
+      type: 'context',
+      handoff: { omittedMessages: 1, includedMessages: 5 },
+    });
     const recoveredSession = recovery.find((event) => event.type === 'session');
     if (recoveredSession?.type !== 'session') throw new Error('Missing recovered checkpoint');
     expect(recoveredSession.session.opaqueState).not.toBe(resumedSession.session.opaqueState);
@@ -186,6 +192,18 @@ test('Codex canonical chat connects and retires the owned native process', async
       .at(-1)?.params?.input;
     expect(JSON.stringify(recoveredInput)).toContain('Owned harmless question');
     expect(JSON.stringify(recoveredInput)).toContain('Cross-provider answer');
+    expect(JSON.stringify(recoveredInput)).toContain('1 earlier message(s) omitted');
+    await retired(fixture.journal);
+    const tooLarge = await collect(
+      adapter.run(
+        { ...fixture.request, prompt: '\\'.repeat(131_072) },
+        new AbortController().signal,
+      ),
+    );
+    expect(tooLarge).toEqual([{ type: 'failed', code: 'input-too-large' }]);
+    expect(
+      (await records(fixture.journal)).filter((entry) => entry.method === 'turn/start'),
+    ).toHaveLength(3);
     await retired(fixture.journal);
     await writeFile(join(fixture.cwd, 'behavior.json'), JSON.stringify({ stall: true }));
     const controller = new AbortController();
@@ -276,12 +294,11 @@ test('Codex dispose releases a consumer paused at the persistence checkpoint', a
   }
 }, 10_000);
 
-test('Codex retires a timed-out turn even without a completion notification', async () => {
-  const fixture = await scenario({ stall: true });
-  const adapter = createCodexAdapter({ turnTimeoutMs: 100 });
+test('Codex permits active reasoning beyond two minutes but retires inactive turns', async () => {
+  const fixture = await scenario({ controlledTurn: true });
+  const adapter = createCodexAdapter();
   try {
-    const events = await collect(adapter.run(fixture.request, new AbortController().signal));
-    expect(events.at(-1)).toEqual({ type: 'failed', code: 'provider-failed' });
+    await verifyInactivity(adapter, fixture.request);
     expect((await records(fixture.journal)).some((entry) => entry.interrupted === true)).toBe(true);
     await retired(fixture.journal);
   } finally {

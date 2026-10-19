@@ -211,3 +211,80 @@ test('the real service and ACP provider retain the permanent conversation across
     await reopened.close();
   }
 }, 20_000);
+
+test('bounded handoff disclosure and full history survive service reopen', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'handoff-application-'));
+  const journal = join(directory, 'journal.jsonl');
+  const encryption = {
+    encrypt: (value: string) => Buffer.from(value),
+    decrypt: (value: Buffer) => value.toString(),
+  };
+  const options = { directory: join(directory, 'store'), encryption };
+  let storage = await openStorage(options);
+  const initial = await storage.conversationStore.read();
+  const messages: AppState['messages'] = ['x'.repeat(300_000), 'Recent whole context'].map(
+    (content, index) => ({
+      id: `old-${String(index)}`,
+      role: 'user',
+      status: 'complete',
+      content,
+      profile: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }),
+  );
+  await storage.conversationStore.write({ ...initial, revision: 1, messages });
+  let service = await createApplicationService({
+    storage,
+    workspaceBase: directory,
+    adapters: [createAcpAdapter()],
+  });
+  onTestFinished(async () => {
+    await service.shutdown();
+    await rm(directory, { recursive: true, force: true });
+  });
+  await service.saveProfile({
+    id: 'local',
+    name: 'Local fixture',
+    kind: 'acp',
+    executable: process.execPath,
+    args: [fixture],
+    env: [{ name: 'FIXTURE_JOURNAL', value: journal }],
+  });
+  expect(
+    await service.send({ requestId: 'bounded', content: 'Current complete request' }),
+  ).toMatchObject({ ok: true });
+  const completed = await stateWhen(
+    service,
+    (state) => state.messages.length === 4 && state.activeRun === null,
+  );
+  expect(completed.messages.at(-1)?.contextHandoff).toEqual({
+    omittedMessages: 1,
+    includedMessages: 1,
+  });
+  expect(completed.messages.slice(0, 2)).toEqual(messages);
+  await assertRetired(journal);
+  await service.shutdown();
+  storage = await openStorage(options);
+  service = await createApplicationService({
+    storage,
+    workspaceBase: directory,
+    adapters: [createAcpAdapter()],
+  });
+  expect((await service.getState()).messages).toEqual(completed.messages);
+  const failure = new Promise<string>((resolve) => {
+    const unsubscribe = service.subscribe((event) => {
+      if (event.type === 'failure') {
+        unsubscribe();
+        resolve(event.code);
+      }
+    });
+  });
+  expect(
+    await service.send({ requestId: 'oversized-current', content: '\\'.repeat(131_072) }),
+  ).toMatchObject({ ok: true });
+  expect(await failure).toBe('input-too-large');
+  expect((await service.getState()).messages.at(-1)?.status).toBe('failed');
+  expect((await service.getState()).messages.slice(0, 2)).toEqual(messages);
+  await assertRetired(journal);
+});
