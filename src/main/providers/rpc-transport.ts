@@ -100,14 +100,17 @@ export function createRpcTransport(
       try {
         return await new Promise<unknown>((resolveRequest, reject) => {
           pending.set(id, { resolve: resolveRequest, reject });
-          timeout = setTimeout(() => {
-            fail(new ProviderFault());
-          }, timeoutMs);
-          try {
-            processTransport.send(JSON.stringify({ ...version, id, method, params }));
-          } catch {
-            fail(new ProviderFault());
-          }
+          void processTransport.ready.then(() => {
+            if (failure !== undefined) return;
+            timeout = setTimeout(() => {
+              fail(new ProviderFault());
+            }, timeoutMs);
+            try {
+              processTransport.send(JSON.stringify({ ...version, id, method, params }));
+            } catch {
+              fail(new ProviderFault());
+            }
+          }, fail);
         });
       } finally {
         clearTimeout(timeout);

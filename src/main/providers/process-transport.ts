@@ -1,4 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { TextDecoder } from 'node:util';
 
@@ -16,6 +17,8 @@ export interface ProcessTransportOptions {
 }
 
 export interface ProcessTransport {
+  /** Native process created under ownership. Startup has a separate 30 second bound. */
+  readonly ready: Promise<void>;
   /** One UTF-8 line, without the newline. Bounded queued writes. */
   send(line: string): void;
   /** EOF only. Does not start a forced-retirement deadline; later sends are rejected. */
@@ -27,7 +30,7 @@ export interface ProcessTransport {
 const OUTPUT_BYTES = 8 * 1024 * 1024;
 const STDERR_BYTES = 256 * 1024;
 
-function launch(profile: ResolvedProfile): ChildProcessWithoutNullStreams {
+function launch(profile: ResolvedProfile, readyToken: string): ChildProcessWithoutNullStreams {
   try {
     const { executable, args, env } = resolveLaunch(profile);
     if (process.platform === 'win32') {
@@ -48,7 +51,12 @@ function launch(profile: ResolvedProfile): ChildProcessWithoutNullStreams {
           cwd: profile.cwd,
           env: {
             ...env,
-            MY_AGENT_PROCESS_LAUNCH: JSON.stringify({ executable, args, cwd: profile.cwd }),
+            MY_AGENT_PROCESS_LAUNCH: JSON.stringify({
+              executable,
+              args,
+              cwd: profile.cwd,
+              readyToken,
+            }),
           },
           windowsHide: true,
           shell: false,
@@ -73,7 +81,9 @@ export function createProcessTransport(
   profile: ResolvedProfile,
   options: ProcessTransportOptions,
 ): ProcessTransport {
-  const child = launch(profile);
+  // An opaque per-launch supervisor marker shares stderr, never the provider wire.
+  const readyToken = `my-agent-ready:${randomUUID()}\n`;
+  const child = launch(profile, readyToken);
   let closed = false;
   let closing: Promise<void> | undefined;
   let failed = false;
@@ -81,6 +91,29 @@ export function createProcessTransport(
   let frame = Buffer.alloc(0);
   let outputBytes = 0;
   let stderrBytes = 0;
+  let startupTail = Buffer.alloc(0);
+  let started = false;
+  let resolveReady: () => void = () => {
+    /* Bound before process events. */
+  };
+  let rejectReady: (fault: ProviderFault) => void = () => {
+    /* Bound before process events. */
+  };
+  const ready = new Promise<void>((resolveStartup, rejectStartup) => {
+    resolveReady = resolveStartup;
+    rejectReady = rejectStartup;
+  });
+  // Raw streaming consumers may not need ready; failures still go through onFailure.
+  void ready.catch(() => {
+    /* Avoid an unobserved promise rejection. */
+  });
+  const markReady = () => {
+    if (failed || closing !== undefined) return;
+    started = true;
+    startupTail = Buffer.alloc(0);
+    clearTimeout(startupDeadline);
+    resolveReady();
+  };
   const decoder = new TextDecoder('utf-8', { fatal: true });
   let resolveClosed: () => void = () => {
     /* Bound before asynchronous process events. */
@@ -93,12 +126,20 @@ export function createProcessTransport(
   const fail = (fault = new ProviderFault()) => {
     if (failed || closing !== undefined) return;
     failed = true;
+    clearTimeout(startupDeadline);
+    rejectReady(fault);
     options.onFailure(fault);
     closing ??= closeChild();
     void closing.catch(() => {
       /* The owner observes shutdown errors through close(). */
     });
   };
+  const startupDeadline = setTimeout(() => {
+    fail(new ProviderFault('unavailable'));
+  }, 30_000);
+  child.on('spawn', () => {
+    if (process.platform !== 'win32') markReady();
+  });
   child.on('error', () => {
     fail(new ProviderFault('unavailable'));
   });
@@ -125,14 +166,25 @@ export function createProcessTransport(
   child.on('close', (code, signal) => {
     closed = true;
     resolveClosed();
-    if (!failed && closing === undefined && options.onExit !== undefined)
+    if (started && !failed && closing === undefined && options.onExit !== undefined)
       options.onExit(code, signal);
     else fail();
   });
   child.stderr.on('data', (chunk: Buffer) => {
     // Drain but never retain or log diagnostics. Excess diagnostics retire the process.
     stderrBytes += chunk.length;
-    if (stderrBytes > STDERR_BYTES) fail();
+    if (stderrBytes > STDERR_BYTES) {
+      fail();
+      return;
+    }
+    if (process.platform === 'win32' && !started && !failed && closing === undefined) {
+      const candidate = Buffer.concat([startupTail, chunk]);
+      if (candidate.includes(readyToken)) markReady();
+      else
+        startupTail = Buffer.from(
+          candidate.subarray(Math.max(0, candidate.length - readyToken.length + 1)),
+        );
+    }
   });
   child.stdout.on('data', (chunk: Buffer) => {
     if (failed || closing !== undefined) return;
@@ -176,6 +228,8 @@ export function createProcessTransport(
   });
 
   async function closeChild() {
+    clearTimeout(startupDeadline);
+    rejectReady(new ProviderFault());
     if (hasClosed()) return;
     endInput();
     // Give cooperative agents EOF first. No arbitrary sleep: race the close event.
@@ -224,6 +278,7 @@ export function createProcessTransport(
   }
 
   return {
+    ready,
     send(line) {
       if (
         failed ||

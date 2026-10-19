@@ -70,7 +70,7 @@ public static class OwnedAgentProcess {
     return result.ToString();
   }
 
-  public static int Run(string executable, string[] args, string cwd) {
+  public static int Run(string executable, string[] args, string cwd, string readyToken) {
     IntPtr job = CreateJobObject(IntPtr.Zero, null);
     if (job == IntPtr.Zero) throw new Win32Exception();
     PROCESSINFO process = new PROCESSINFO();
@@ -97,6 +97,8 @@ public static class OwnedAgentProcess {
       startup.AttributeList = attributes;
       if (!CreateProcess(executable, command, IntPtr.Zero, IntPtr.Zero, true, 0x08080004, IntPtr.Zero, cwd, ref startup, out process)) throw new Win32Exception();
       if (ResumeThread(process.hThread) == uint.MaxValue) throw new Win32Exception();
+      Console.Error.Write(readyToken);
+      Console.Error.Flush();
       WaitForSingleObject(process.hProcess, uint.MaxValue);
       uint exitCode;
       if (!GetExitCodeProcess(process.hProcess, out exitCode)) throw new Win32Exception();
@@ -114,7 +116,7 @@ public static class OwnedAgentProcess {
   }
 }
 '@
-  $exitCode = [OwnedAgentProcess]::Run([string]$launch.executable, [string[]]$launch.args, [string]$launch.cwd)
+  $exitCode = [OwnedAgentProcess]::Run([string]$launch.executable, [string[]]$launch.args, [string]$launch.cwd, [string]$launch.readyToken)
   exit $exitCode
 } catch {
   # Do not render native exceptions, launch data, or inherited environment.
