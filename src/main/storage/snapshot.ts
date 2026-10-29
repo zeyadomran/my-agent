@@ -46,7 +46,7 @@ export async function loadSnapshot(
     )
       throw new StorageError('storage-corrupt');
     const privateData = record(
-      JSON.parse(encryption.decrypt(Buffer.from(payload.protected, 'base64'))) as unknown,
+      JSON.parse(await encryption.decrypt(Buffer.from(payload.protected, 'base64'))) as unknown,
       ['profiles', 'sessions'],
     );
     const snapshot = { state: payload.state, ...privateData };
@@ -67,7 +67,7 @@ export async function saveSnapshot(
 ): Promise<void> {
   let protectedData: Buffer;
   try {
-    protectedData = encryption.encrypt(
+    protectedData = await encryption.encrypt(
       JSON.stringify({ profiles: snapshot.profiles, sessions: snapshot.sessions }),
     );
     if (protectedData.length === 0) throw new Error();
