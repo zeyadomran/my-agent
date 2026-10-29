@@ -9,7 +9,7 @@ export default defineConfig({
   preload: {
     build: {
       outDir: 'dist/preload',
-      rollupOptions: { output: { format: 'cjs', entryFileNames: 'index.cjs' } },
+      rolldownOptions: { output: { format: 'cjs', entryFileNames: 'index.cjs' } },
     },
   },
   renderer: {
