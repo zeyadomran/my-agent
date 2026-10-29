@@ -24,8 +24,8 @@ const send = (message) =>
   );
 let pendingPrompt;
 let permissionReplies = 0;
-const complete = () => {
-  for (const text of ['Hello ', 'world'])
+const complete = (chunks = ['Hello ', 'world']) => {
+  for (const text of chunks)
     send({
       method: 'session/update',
       params: {
@@ -176,7 +176,7 @@ input.on('line', (line) => {
                 },
               },
             });
-          if (action === 'finish') complete();
+          if (action === 'finish') complete(behavior.partialReply === true ? ['world'] : undefined);
         },
         (id) => send({ method: 'fixture/ack', params: { fixtureAck: id } }),
       )
@@ -187,7 +187,7 @@ input.on('line', (line) => {
           sessionId: 'fixture-session',
           update: {
             sessionUpdate: 'agent_message_chunk',
-            content: { type: 'text', text: 'ready' },
+            content: { type: 'text', text: behavior.partialReply === true ? 'Hello ' : 'ready' },
           },
         },
       });
