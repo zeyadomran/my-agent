@@ -49,3 +49,9 @@ These checks establish the bounded paths above, not every model, CLI version, ma
 ## Later context and deadline changes
 
 The [final changed-path qualification](#final-changed-path-qualification) records the completed native pass on the exact integrated source and artifact, separately from the earlier historical observations. Bounded whole-message handoff/disclosure and protocol-inactivity/absolute-cap changes also have controlled functional coverage. Short live exchanges establish the recorded native chat/resume paths; controlled-clock tests establish timing-policy behavior without claiming live reasoning or streaming beyond two minutes.
+
+## Electron 45 storage compatibility
+
+On 2026-10-29, bounded Windows qualification used the real storage factory and safeStorage adapter bundled from source, actual Electron runtimes, and an owned temporary profile containing only a synthetic protected value. Electron 44.9.0 created the encrypted store through the synchronous adapter. Electron 45.0.0 reopened it through the asynchronous adapter, preserved the exact profile, rewrote it, and preserved it again after close/reopen. The synthetic protected value was absent from the snapshot's plaintext. Both owned native processes exited successfully.
+
+This verifies the Windows encryption migration and storage round trip. It does not repeat the historical packaged-renderer or live-provider qualification, or qualify Linux/macOS key stores.
