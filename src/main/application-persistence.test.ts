@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -36,8 +36,12 @@ function failureWhen(service: ApplicationService): Promise<AppEvent> {
   });
 }
 
-async function scenario(commitCheckpoint: NonNullable<StorageOptions['commitCheckpoint']>) {
+async function scenario(
+  commitCheckpoint: NonNullable<StorageOptions['commitCheckpoint']>,
+  behavior: object = {},
+) {
   const directory = await mkdtemp(join(tmpdir(), 'my-agent-admission-'));
+  await writeFile(join(directory, 'behavior.json'), JSON.stringify(behavior));
   const journal = join(directory, 'journal.jsonl');
   const storageDirectory = join(directory, 'store');
   const storage = await openStorage({ directory: storageDirectory, encryption, commitCheckpoint });
@@ -162,21 +166,34 @@ test('a native checkpoint must commit before the provider receives a prompt', as
 
 test('uncertain streamed persistence retires the provider and preserves committed partial text on reopen', async () => {
   let failNext = false;
-  const { directory, journal, storageDirectory, service } = await scenario((phase) => {
-    if (failNext && phase === 'after-replace')
-      throw new Error('Synthetic stream acknowledgement failure');
-  });
+  const partial = latch();
+  const { directory, journal, storageDirectory, service } = await scenario(
+    (phase) => {
+      if (failNext && phase === 'after-replace')
+        throw new Error('Synthetic stream acknowledgement failure');
+    },
+    { controlledTurn: true, partialReply: true },
+  );
   const published: AppState[] = [];
   service.subscribe((event) => {
     if (event.type !== 'state') return;
     published.push(event.state);
-    if (event.state.messages.at(-1)?.content === 'Hello ') failNext = true;
+    if (event.state.messages.at(-1)?.content === 'Hello ') {
+      failNext = true;
+      partial.release();
+    }
   });
   try {
     const failed = failureWhen(service);
     expect(
       await service.send({ requestId: 'partial', content: 'Synthetic partial question' }),
     ).toMatchObject({ ok: true });
+    await partial.promise;
+    await writeFile(
+      join(directory, 'turn-command.tmp'),
+      JSON.stringify({ id: 'finish', action: 'finish' }),
+    );
+    await rename(join(directory, 'turn-command.tmp'), join(directory, 'turn-command-finish.json'));
     expect(await failed).toMatchObject({ type: 'failure', code: 'storage-failed' });
     expect(published.at(-1)?.messages.at(-1)).toMatchObject({
       content: 'Hello ',
