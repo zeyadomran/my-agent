@@ -16,8 +16,8 @@ import { array, record, summaries, validateTransition } from './validation';
 export { StorageError } from './errors';
 
 export interface EncryptionBoundary {
-  encrypt(value: string): Buffer;
-  decrypt(value: Buffer): string;
+  encrypt(value: string): Buffer | Promise<Buffer>;
+  decrypt(value: Buffer): string | Promise<string>;
 }
 
 export interface StorageOptions {

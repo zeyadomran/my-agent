@@ -10,6 +10,6 @@ export async function openElectronStorage(): Promise<Storage> {
   await app.whenReady();
   return openStorage({
     directory: join(app.getPath('userData'), 'storage'),
-    encryption: createSafeStorageEncryption(safeStorage, process.platform),
+    encryption: await createSafeStorageEncryption(safeStorage, process.platform),
   });
 }
