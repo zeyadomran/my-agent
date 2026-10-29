@@ -27,20 +27,20 @@ async function cleanup(directory: string): Promise<void> {
   for (const storage of opened.splice(0)) await storage.close();
   await rm(directory, { recursive: true, force: true });
 }
-const encryption: EncryptionBoundary = {
-  encrypt(value) {
+const encryption = {
+  encrypt(value: string) {
     const iv = randomBytes(12);
     const cipher = createCipheriv('aes-256-gcm', key, iv);
     return Buffer.concat([iv, cipher.update(value, 'utf8'), cipher.final(), cipher.getAuthTag()]);
   },
-  decrypt(value) {
+  decrypt(value: Buffer) {
     const decipher = createDecipheriv('aes-256-gcm', key, value.subarray(0, 12));
     decipher.setAuthTag(value.subarray(-16));
     return Buffer.concat([decipher.update(value.subarray(12, -16)), decipher.final()]).toString(
       'utf8',
     );
   },
-};
+} satisfies EncryptionBoundary;
 
 const profile: AgentProfile = {
   id: 'local',
@@ -467,14 +467,17 @@ test('secure storage refuses unavailable and plaintext backends without losing a
   const directory = await mkdtemp(join(tmpdir(), 'my-agent-protected-'));
   let available = true;
   const api = {
-    isEncryptionAvailable: () => available,
+    isAsyncEncryptionAvailable: () => Promise.resolve(available),
     getSelectedStorageBackend: () => 'basic_text' as const,
-    encryptString: (value: string) => encryption.encrypt(value),
-    decryptString: (value: Buffer) => encryption.decrypt(value),
+    encryptStringAsync: (value: string) => Promise.resolve(encryption.encrypt(value)),
+    decryptStringAsync: (value: Buffer) =>
+      Promise.resolve({ result: encryption.decrypt(value), shouldReEncrypt: false }),
   };
   try {
-    expect(() => createSafeStorageEncryption(api, 'linux')).toThrow('secure-storage-unavailable');
-    const protectedEncryption = createSafeStorageEncryption(api, 'win32');
+    await expect(createSafeStorageEncryption(api, 'linux')).rejects.toThrow(
+      'secure-storage-unavailable',
+    );
+    const protectedEncryption = await createSafeStorageEncryption(api, 'win32');
     const storage = await openStorage({ directory, encryption: protectedEncryption });
     await storage.profileStore.writeProfiles([profile]);
     const committed = await readFile(join(directory, 'store.json'), 'utf8');

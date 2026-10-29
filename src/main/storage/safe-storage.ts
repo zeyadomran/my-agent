@@ -5,17 +5,20 @@ import type { EncryptionBoundary } from './index';
 
 type SafeStorageApi = Pick<
   SafeStorage,
-  'isEncryptionAvailable' | 'getSelectedStorageBackend' | 'encryptString' | 'decryptString'
+  | 'isAsyncEncryptionAvailable'
+  | 'getSelectedStorageBackend'
+  | 'encryptStringAsync'
+  | 'decryptStringAsync'
 >;
 
-/** The synchronous backend is used so Linux's plaintext fallback can be refused explicitly. */
-export function createSafeStorageEncryption(
+/** Await native encryption while continuing to refuse Linux's plaintext fallback. */
+export async function createSafeStorageEncryption(
   api: SafeStorageApi,
   platform: NodeJS.Platform,
-): EncryptionBoundary {
-  const requireSecureBackend = (): void => {
+): Promise<EncryptionBoundary> {
+  const requireSecureBackend = async (): Promise<void> => {
     try {
-      if (!api.isEncryptionAvailable()) throw new Error();
+      if (!(await api.isAsyncEncryptionAvailable())) throw new Error();
       if (
         platform === 'linux' &&
         !['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6'].includes(
@@ -27,20 +30,20 @@ export function createSafeStorageEncryption(
       throw new StorageError('secure-storage-unavailable');
     }
   };
-  requireSecureBackend();
+  await requireSecureBackend();
   return {
-    encrypt(value) {
-      requireSecureBackend();
+    async encrypt(value) {
+      await requireSecureBackend();
       try {
-        return api.encryptString(value);
+        return await api.encryptStringAsync(value);
       } catch {
         throw new StorageError('secure-storage-unavailable');
       }
     },
-    decrypt(value) {
-      requireSecureBackend();
+    async decrypt(value) {
+      await requireSecureBackend();
       try {
-        return api.decryptString(value);
+        return (await api.decryptStringAsync(value)).result;
       } catch {
         throw new StorageError('secure-storage-unavailable');
       }
