@@ -15,10 +15,12 @@ updates:
       prefix: ci
   - package-ecosystem: npm
     directory: /
-    # Keep TypeScript 6 until the lint toolchain supports TypeScript 7.
+    # Match Node types to the supported runtime; keep TypeScript 6 until lint supports 7.
     ignore:
       - dependency-name: typescript
         versions: ['>=7']
+      - dependency-name: '@types/node'
+        versions: ['>=23']
     schedule:
       interval: weekly
       day: monday
